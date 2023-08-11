@@ -151,6 +151,7 @@ pub struct SystemClasses<'gc> {
     pub shaderfilter: ClassObject<'gc>,
     pub statusevent: ClassObject<'gc>,
     pub contextmenuevent: ClassObject<'gc>,
+    pub localconnection: ClassObject<'gc>,
 }
 
 impl<'gc> SystemClasses<'gc> {
@@ -274,6 +275,7 @@ impl<'gc> SystemClasses<'gc> {
             shaderfilter: object,
             statusevent: object,
             contextmenuevent: object,
+            localconnection: object,
         }
     }
 }
@@ -814,6 +816,7 @@ fn load_playerglobal<'gc>(
             ("flash.media", "SoundChannel", soundchannel),
             ("flash.media", "SoundTransform", soundtransform),
             ("flash.media", "Video", video),
+            ("flash.net", "LocalConnection", localconnection),
             ("flash.net", "URLVariables", urlvariables),
             ("flash.utils", "ByteArray", bytearray),
             ("flash.system", "ApplicationDomain", application_domain),
