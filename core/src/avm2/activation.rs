@@ -1348,6 +1348,8 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             let name_value = self.context.avm2.peek(0);
             let object_value = self.context.avm2.peek(1);
 
+            // FIXME: avmplus does this differently when the Multiname does not
+            // include the public namespace
             if let Value::Object(object) = object_value {
                 match name_value {
                     Value::Integer(name_int) if name_int >= 0 => {
@@ -1398,26 +1400,44 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             return Ok(FrameControl::Continue);
         }
 
-        // side path for dictionary/arrays (TODO)
+        // side path for dictionary/arrays
         if multiname.has_lazy_name() && !multiname.has_lazy_ns() {
             // `MultinameL` is the only form of multiname that allows fast-path
             // or alternate-path lookups based on the local name *value*,
             // rather than it's string representation.
 
             let name_value = self.context.avm2.peek(0);
-            let object = self.context.avm2.peek(1);
-            if !name_value.is_primitive() {
-                let object = object.coerce_to_object_or_typeerror(self, None)?;
-                if let Some(dictionary) = object.as_dictionary_object() {
-                    let _ = self.pop_stack();
-                    let _ = self.pop_stack();
-                    dictionary.set_property_by_object(
-                        name_value.as_object().unwrap(),
-                        value,
-                        self.context.gc_context,
-                    );
+            let object_value = self.context.avm2.peek(1);
 
-                    return Ok(FrameControl::Continue);
+            // FIXME: avmplus does this differently when the Multiname does not
+            // include the public namespace
+            if let Value::Object(object_value) = object_value {
+                match name_value {
+                    Value::Integer(name_int) if name_int >= 0 => {
+                        if let Some(mut array_storage) =
+                            object_value.as_array_storage_mut(self.context.gc_context)
+                        {
+                            let _ = self.pop_stack();
+                            let _ = self.pop_stack();
+                            array_storage.set(name_int as usize, value);
+
+                            return Ok(FrameControl::Continue);
+                        }
+                    }
+                    Value::Object(name_object) => {
+                        if let Some(dictionary) = object_value.as_dictionary_object() {
+                            let _ = self.pop_stack();
+                            let _ = self.pop_stack();
+                            dictionary.set_property_by_object(
+                                name_object,
+                                value,
+                                self.context.gc_context,
+                            );
+
+                            return Ok(FrameControl::Continue);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
