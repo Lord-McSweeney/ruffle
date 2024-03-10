@@ -13,12 +13,64 @@ use std::collections::HashSet;
 enum ValueType<'gc> {
     // Either a class, or null.
     Class(ClassObject<'gc>),
+
+    // Primitive types, guaranteed to be non-null
     Int,
     Uint,
     Number,
     Boolean,
+
+    // Other misc types
     Null,
     Any,
+}
+
+impl<'gc> ValueType<'gc> {
+    fn get_class(&self, activation: &mut Activation<'_, 'gc>) -> Option<ClassObject<'gc>> {
+        match self {
+            ValueType::Class(class_object) => Some(*class_object),
+            ValueType::Int => Some(activation.avm2().classes().int),
+            ValueType::Number => Some(activation.avm2().classes().number),
+            ValueType::Boolean => Some(activation.avm2().classes().boolean),
+            _ => None,
+        }
+    }
+    
+    fn from_maybe_primitive_class(activation: &mut Activation<'_, 'gc>, class: GcCell<'gc, Class<'gc>>) -> Self {
+        if GcCell::ptr_eq(
+            class,
+            activation.avm2().classes().int.inner_class_definition(),
+        ) {
+            return Self::Int;
+        }
+
+        if GcCell::ptr_eq(
+            class,
+            activation.avm2().classes().uint.inner_class_definition(),
+        ) {
+            return Self::Uint;
+        }
+
+        if GcCell::ptr_eq(
+            class,
+            activation.avm2().classes().number.inner_class_definition(),
+        ) {
+            return Self::Number;
+        }
+
+        if GcCell::ptr_eq(
+            class,
+            activation.avm2().classes().boolean.inner_class_definition(),
+        ) {
+            return Self::Boolean;
+        }
+
+        return class
+            .read()
+            .class_object()
+            .map(ValueType::Class)
+            .unwrap_or(ValueType::Any);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -33,26 +85,20 @@ impl<'gc> Locals<'gc> {
         self.0[index] = ValueType::Class(class);
     }
 
-    fn set_class(&mut self, index: usize, class: GcCell<'gc, Class<'gc>>) {
-        // FIXME: Getting the ClassObject this way should be unnecessary
-        // after the ClassObject refactor
-        self.0[index] = class
-            .read()
-            .class_object()
-            .map(ValueType::Class)
-            .unwrap_or(ValueType::Any);
-    }
-
     fn set_any(&mut self, index: usize) {
         self.0[index] = ValueType::Any;
+    }
+
+    fn set_int(&mut self, index: usize) {
+        self.0[index] = ValueType::Int;
     }
 
     fn set(&mut self, index: usize, value: ValueType<'gc>) {
         self.0[index] = value;
     }
 
-    fn at(&self, index: usize) -> Option<ValueType<'gc>> {
-        self.0.get(index).copied()
+    fn at(&self, index: usize) -> ValueType<'gc> {
+        self.0[index]
     }
 
     fn len(&self) -> usize {
@@ -189,7 +235,8 @@ pub fn optimize<'gc>(
 
     for (i, argument_type) in argument_types.iter().enumerate() {
         if let Some(argument_type) = argument_type {
-            initial_local_types.set_class(i + 1, *argument_type);
+            let argument_value_type = ValueType::from_maybe_primitive_class(activation, *argument_type);
+            initial_local_types.set(i + 1, argument_value_type);
             // `i + 1` because the receiver takes up local #0
         }
     }
@@ -238,29 +285,37 @@ pub fn optimize<'gc>(
 
         match op {
             Op::CoerceB => {
+                println!("|CoerceB|?");
                 let stack_value = stack.pop();
                 if matches!(stack_value, Some(ValueType::Boolean)) {
+                    println!("|CoerceB|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_boolean();
             }
             Op::CoerceD => {
+                println!("|CoerceD|?");
                 let stack_value = stack.pop();
-                if matches!(stack_value, Some(ValueType::Number)) {
+                if matches!(stack_value, Some(ValueType::Number | ValueType::Int | ValueType::Uint)) {
+                    println!("|CoerceD|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_number();
             }
             Op::CoerceI => {
+                println!("|CoerceI|?");
                 let stack_value = stack.pop();
                 if matches!(stack_value, Some(ValueType::Int | ValueType::Uint)) {
+                    println!("|CoerceI|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_int();
             }
             Op::CoerceU => {
+                println!("|CoerceU|?");
                 let stack_value = stack.pop();
                 if matches!(stack_value, Some(ValueType::Uint)) {
+                    println!("|CoerceU|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_uint();
@@ -271,8 +326,10 @@ pub fn optimize<'gc>(
                 stack.push_any();
             }
             Op::CoerceS => {
+                println!("|CoerceS|?");
                 let stack_value = stack.pop();
                 if matches!(stack_value, Some(ValueType::Null)) {
+                    println!("|CoerceS|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_class_object(activation.avm2().classes().string);
@@ -318,35 +375,25 @@ pub fn optimize<'gc>(
                 }
             }
             Op::PushInt { value } => {
-                if *value < -(1 << 28) || *value >= (1 << 28) {
-                    stack.push_number();
-                } else if *value >= 0 {
+                if *value >= 0 {
                     stack.push_uint();
                 } else {
                     stack.push_int();
                 }
             }
             Op::DecrementI => {
-                // This doesn't give any Number-int guarantees
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::IncrementI => {
-                // This doesn't give any Number-int guarantees
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::DecLocalI { index } => {
-                if (*index as usize) < local_types.len() {
-                    // This doesn't give any Number-int guarantees
-                    local_types.set_any(*index as usize);
-                }
+                local_types.set_int(*index as usize);
             }
             Op::IncLocalI { index } => {
-                if (*index as usize) < local_types.len() {
-                    // This doesn't give any Number-int guarantees
-                    local_types.set_any(*index as usize);
-                }
+                local_types.set_int(*index as usize);
             }
             Op::Increment => {
                 stack.pop();
@@ -363,27 +410,37 @@ pub fn optimize<'gc>(
             Op::AddI => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::SubtractI => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::MultiplyI => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::Add => {
-                stack.pop();
-                stack.pop();
-                stack.push_any();
+                let first = stack.pop();
+                let second = stack.pop();
+                if matches!(first, Some(ValueType::Int)) && matches!(second, Some(ValueType::Int)) {
+                    stack.push_int();
+                } else if matches!(first, Some(ValueType::Number)) && matches!(second, Some(ValueType::Number)) {
+                    stack.push_number();
+                } else {
+                    stack.push_any();
+                }
             }
             Op::Subtract => {
-                stack.pop();
-                stack.pop();
-                stack.push_any();
+                let first = stack.pop();
+                let second = stack.pop();
+                if matches!(first, Some(ValueType::Int)) && matches!(second, Some(ValueType::Int)) {
+                    stack.push_int();
+                } else {
+                    stack.push_number();
+                }
             }
             Op::Multiply => {
                 stack.pop();
@@ -411,37 +468,37 @@ pub fn optimize<'gc>(
             }
             Op::BitNot => {
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::BitAnd => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::BitOr => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::BitXor => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::LShift => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::RShift => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::URShift => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_int();
             }
             Op::PushDouble { .. } => {
                 stack.push_number();
@@ -487,14 +544,17 @@ pub fn optimize<'gc>(
                 stack.push_any();
             }
             Op::AsType { class } => {
+                println!("|AsType|?");
                 let stack_value = stack.pop();
                 stack.push_class(*class);
 
                 if matches!(stack_value, Some(ValueType::Null)) {
+                    println!("|AsType|Nop");
                     *op = Op::Nop;
                 }
             }
             Op::Coerce { class } => {
+                println!("|Coerce|?");
                 let stack_value = stack.pop();
                 stack.push_class(*class);
 
@@ -517,9 +577,11 @@ pub fn optimize<'gc>(
                     activation.avm2().classes().void.inner_class_definition(),
                 ) {
                     if matches!(stack_value, Some(ValueType::Null)) {
+                        println!("|Coerce|Nop");
                         *op = Op::Nop;
-                    } else if let Some(ValueType::Class(class_object)) = stack_value {
+                    } else if let Some(class_object) = stack_value.and_then(|s| s.get_class(activation)) {
                         if GcCell::ptr_eq(*class, class_object.inner_class_definition()) {
+                            println!("|Coerce|Nop");
                             *op = Op::Nop;
                         }
                     }
@@ -552,55 +614,45 @@ pub fn optimize<'gc>(
                 }
             }
             Op::Kill { index } => {
-                if (*index as usize) < local_types.len() {
-                    local_types.set_any(*index as usize);
-                }
+                local_types.set_any(*index as usize);
             }
             Op::SetLocal { index } => {
                 let stack_value = stack.pop();
-                if (*index as usize) < local_types.len() {
-                    if let Some(stack_value) = stack_value {
-                        local_types.set(*index as usize, stack_value);
-                    } else {
-                        local_types.set_any(*index as usize);
-                    }
+                if let Some(stack_value) = stack_value {
+                    local_types.set(*index as usize, stack_value);
+                } else {
+                    local_types.set_any(*index as usize);
                 }
             }
             Op::GetLocal { index } => {
                 let local_type = local_types.at(*index as usize);
-                if let Some(local_type) = local_type {
-                    stack.push(local_type);
-                } else {
-                    stack.push_any();
-                }
+                stack.push(local_type);
             }
             Op::GetLex { .. } => {
                 stack.push_any();
             }
             Op::FindPropStrict { multiname } => {
-                if !multiname.has_lazy_component() {
-                    stack.push_any();
-                } else {
-                    // Avoid handling lazy for now
-                    stack.clear();
-                }
+                stack.pop_for_multiname(*multiname);
+                stack.push_any();
             }
-            Op::FindProperty { .. } => {
-                // Avoid handling for now
-                stack.clear();
+            Op::FindProperty { multiname } => {
+                stack.pop_for_multiname(*multiname);
+                stack.push_any();
             }
             Op::GetProperty { multiname } => {
+                println!("|GetProperty|?");
                 let mut stack_push_done = false;
 
                 stack.pop_for_multiname(*multiname);
                 let stack_value = stack.pop();
 
                 if !multiname.has_lazy_component() {
-                    if let Some(ValueType::Class(class)) = stack_value {
+                    if let Some(class) = stack_value.and_then(|s| s.get_class(activation)) {
                         if !class.inner_class_definition().read().is_interface() {
                             match class.instance_vtable().get_trait(multiname) {
                                 Some(Property::Slot { slot_id })
                                 | Some(Property::ConstSlot { slot_id }) => {
+                                    println!("|GetProperty|GetSlot");
                                     *op = Op::GetSlot { index: slot_id };
 
                                     let mut value_class =
@@ -610,7 +662,8 @@ pub fn optimize<'gc>(
                                         stack_push_done = true;
 
                                         if let Some(class) = class {
-                                            stack.push_class(class);
+                                            let class = ValueType::from_maybe_primitive_class(activation, class);
+                                            stack.push(class);
                                         } else {
                                             stack.push_any();
                                         }
@@ -625,6 +678,7 @@ pub fn optimize<'gc>(
                                 Some(Property::Virtual {
                                     get: Some(disp_id), ..
                                 }) => {
+                                    println!("|GetProperty|CallMethod");
                                     *op = Op::CallMethod {
                                         num_args: 0,
                                         index: disp_id,
@@ -648,17 +702,19 @@ pub fn optimize<'gc>(
                 stack.push_any();
             }
             Op::InitProperty { multiname } => {
+                println!("|InitProperty|?");
                 stack.pop();
 
                 stack.pop_for_multiname(*multiname);
                 let stack_value = stack.pop();
 
                 if !multiname.has_lazy_component() {
-                    if let Some(ValueType::Class(class)) = stack_value {
+                    if let Some(class) = stack_value.and_then(|s| s.get_class(activation)) {
                         if !class.inner_class_definition().read().is_interface() {
                             match class.instance_vtable().get_trait(multiname) {
                                 Some(Property::Slot { slot_id })
                                 | Some(Property::ConstSlot { slot_id }) => {
+                                    println!("|InitProperty|SetSlot");
                                     *op = Op::SetSlot { index: slot_id };
                                 }
                                 _ => {}
@@ -669,16 +725,18 @@ pub fn optimize<'gc>(
                 // `stack_pop_multiname` handled lazy
             }
             Op::SetProperty { multiname } => {
+                println!("|SetProperty|?");
                 stack.pop();
 
                 stack.pop_for_multiname(*multiname);
                 let stack_value = stack.pop();
 
                 if !multiname.has_lazy_component() {
-                    if let Some(ValueType::Class(class)) = stack_value {
+                    if let Some(class) = stack_value.and_then(|s| s.get_class(activation)) {
                         if !class.inner_class_definition().read().is_interface() {
                             match class.instance_vtable().get_trait(multiname) {
                                 Some(Property::Slot { slot_id }) => {
+                                    println!("|SetProperty|SetSlot");
                                     *op = Op::SetSlot { index: slot_id };
                                 }
                                 _ => {}
@@ -723,6 +781,9 @@ pub fn optimize<'gc>(
                 multiname,
                 num_args,
             } => {
+                println!("|CallProperty|?");
+                let mut stack_push_done = false;
+
                 // Arguments
                 stack.popn(*num_args);
 
@@ -732,14 +793,33 @@ pub fn optimize<'gc>(
                 let stack_value = stack.pop();
 
                 if !multiname.has_lazy_component() {
-                    if let Some(ValueType::Class(class)) = stack_value {
+                    if let Some(class) = stack_value.and_then(|s| s.get_class(activation)) {
                         if !class.inner_class_definition().read().is_interface() {
                             match class.instance_vtable().get_trait(multiname) {
                                 Some(Property::Method { disp_id }) => {
+                                    println!("|CallProperty|CallMethod");
                                     *op = Op::CallMethod {
                                         num_args: *num_args,
                                         index: disp_id,
                                     };
+
+                                    let method = class.instance_vtable().get_method(disp_id).unwrap();
+                                    let return_type_name = method.return_type();
+
+                                    let return_type = if !return_type_name.has_lazy_component() {
+                                        activation
+                                            .domain()
+                                            .get_class(&return_type_name, activation.context.gc_context)
+                                    } else {
+                                        None
+                                    };
+
+                                    if let Some(return_type) = return_type {
+                                        stack_push_done = true;
+
+                                        let value = ValueType::from_maybe_primitive_class(activation, return_type);
+                                        stack.push(value);
+                                    }
                                 }
                                 _ => {}
                             }
@@ -748,8 +828,9 @@ pub fn optimize<'gc>(
                 }
                 // `stack_pop_multiname` handled lazy
 
-                // Avoid checking return value for now
-                stack.push_any();
+                if !stack_push_done {
+                    stack.push_any();
+                }
             }
             Op::CallPropVoid { .. } => {
                 // Avoid handling for now

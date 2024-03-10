@@ -854,5 +854,8 @@ fn load_playerglobal<'gc>(
         .avm2()
         .stage_domain()
         .init_default_domain_memory(activation)?;
+
+    println!("|START|.");
+
     Ok(())
 }
