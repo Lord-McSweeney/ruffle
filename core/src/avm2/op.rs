@@ -337,6 +337,71 @@ pub enum Op<'gc> {
     TypeOf,
     Timestamp,
     URShift,
+
+    // Custom ops for speed
+    AddLocalConstant {
+        index: u32,
+        constant: i32,
+    },
+    AddLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    AddLocal0SlotConstant {
+        slot_id: u32,
+        constant: i32,
+    },
+    BitAndLocalConstant {
+        index: u32,
+        constant: i32,
+    },
+    BitAndLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    ConstructLocal0Super,
+    DivideLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    GetLocalSlot {
+        index: u32,
+        slot_id: u32,
+    },
+    IfLtLocalLocal {
+        index1: u32,
+        index2: u32,
+
+        offset: i32,
+    },
+    IfNeLocalConstant {
+        index: u32,
+        constant: i32,
+
+        offset: i32,
+    },
+    Li8Local {
+        index: u32,
+    },
+    MultiplyLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    PushScopeLocal0,
+    SetLocalConstant {
+        index: u32,
+        constant: i32,
+    },
+    SetLocalNaN {
+        index: u32,
+    },
+    SetLocalNull {
+        index: u32,
+    },
+    SubtractLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
 }
 
 #[cfg(target_pointer_width = "64")]

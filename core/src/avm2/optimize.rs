@@ -1019,4 +1019,222 @@ pub fn optimize<'gc>(
             }
         }
     }
+
+    // Second optimization pass
+
+    const CODE_BUFFER_SIZE: usize = 4;
+    let mut code_buf = [Op::Nop, Op::Nop, Op::Nop, Op::Nop];
+
+    // TODO: This is horrible
+    let code_copy = code.clone();
+
+    for (i, op) in code_copy.iter().enumerate() {
+        if jump_targets.contains_key(&(i as i32)) {
+            code_buf = [Op::Nop, Op::Nop, Op::Nop, Op::Nop];
+        }
+
+        code_buf.rotate_left(1);
+        code_buf[CODE_BUFFER_SIZE - 1] = op.clone(); // FIXME: Make Op Copy
+
+        match code_buf {
+            // AddLocalConstant
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Add] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddLocalConstant { index, constant: constant as i32 };
+            }
+            [_, Op::GetLocal { index }, Op::PushShort { value: constant }, Op::Add] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddLocalConstant { index, constant: constant as i32 };
+            }
+            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::Add] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddLocalConstant { index, constant: constant as i32 };
+            }
+            [Op::GetLocal { index }, Op::PushShort { value: constant }, Op::Nop, Op::Add] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddLocalConstant { index, constant: constant as i32 };
+            }
+
+            // AddLocalLocal
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::Add] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddLocalLocal { index1, index2 };
+            }
+
+            // AddLocal0SlotConstant
+            [Op::GetLocal { index: 0 }, Op::GetSlot { index: slot_id }, Op::PushByte { value: constant }, Op::Add] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddLocal0SlotConstant { slot_id, constant: constant as i32 };
+            }
+            [Op::GetLocal { index: 0 }, Op::GetSlot { index: slot_id }, Op::PushShort { value: constant }, Op::Add] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddLocal0SlotConstant { slot_id, constant: constant as i32 };
+            }
+
+            // BitAndLocalConstant
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::BitAnd] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::BitAndLocalConstant { index, constant: constant as i32 };
+            }
+            [_, Op::GetLocal { index }, Op::PushShort { value: constant }, Op::BitAnd] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::BitAndLocalConstant { index, constant: constant as i32 };
+            }
+            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::BitAnd] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::BitAndLocalConstant { index, constant: constant as i32 };
+            }
+            [Op::GetLocal { index }, Op::PushShort { value: constant }, Op::Nop, Op::BitAnd] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::BitAndLocalConstant { index, constant: constant as i32 };
+            }
+
+            // BitAndLocalLocal
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::BitAnd] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::BitAndLocalLocal { index1, index2 };
+            }
+
+            // ConstructLocal0Super
+            [_, _, Op::GetLocal { index: 0 }, Op::ConstructSuper { num_args: 0 }] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::ConstructLocal0Super;
+            }
+
+            // DivideLocalLocal
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::Divide] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::DivideLocalLocal { index1, index2 };
+            }
+
+            // IfLtLocalLocal
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::IfLt { offset }] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::IfLtLocalLocal { index1, index2, offset };
+            }
+
+            // IfNeLocalConstant
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::IfNe { offset }] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::IfNeLocalConstant { index, constant: constant as i32, offset };
+            }
+            [_, Op::GetLocal { index }, Op::PushInt { value: constant }, Op::IfNe { offset }] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::IfNeLocalConstant { index, constant, offset };
+            }
+            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::IfNe { offset }] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::IfNeLocalConstant { index, constant: constant as i32, offset };
+            }
+            [Op::GetLocal { index }, Op::PushInt { value: constant }, Op::Nop, Op::IfNe { offset }] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::IfNeLocalConstant { index, constant, offset };
+            }
+
+            // GetLocalSlot
+            // Ensure that this doesn't interfere with other optimizations, such as AddLocal0SlotInt
+            [Op::GetLocal { index }, Op::GetSlot { index: slot_id }, _, _] => {
+                code[i - 3] = Op::Nop;
+                code[i - 2] = Op::GetLocalSlot { index, slot_id };
+            }
+
+            // Li8Local
+            [_, _, Op::GetLocal { index }, Op::Li8] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::Li8Local { index };
+            }
+
+            // MultiplyLocalLocal
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::Multiply] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::MultiplyLocalLocal { index1, index2 };
+            }
+
+            // PushScopeLocal0
+            [_, _, Op::GetLocal { index: 0 }, Op::PushScope] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::PushScopeLocal0;
+            }
+
+            // SetLocalConstant
+            [_, _, Op::PushByte { value: constant }, Op::SetLocal { index }] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalConstant { index, constant: constant as i32 };
+            }
+            [_, _, Op::PushInt { value: constant }, Op::SetLocal { index }] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalConstant { index, constant };
+            }
+            [_, Op::PushByte { value: constant }, Op::Nop, Op::SetLocal { index }] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalConstant { index, constant: constant as i32 };
+            }
+            [_, Op::PushInt { value: constant }, Op::Nop, Op::SetLocal { index }] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalConstant { index, constant };
+            }
+
+            // SetLocalNaN
+            [_, _, Op::PushNaN, Op::SetLocal { index }] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalNaN { index };
+            }
+            [_, Op::PushNaN, Op::Nop, Op::SetLocal { index }] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalNaN { index };
+            }
+
+            // SetLocalNull
+            [_, _, Op::PushNull, Op::SetLocal { index }] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalNull { index };
+            }
+            [_, Op::PushNull, Op::Nop, Op::SetLocal { index }] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SetLocalNull { index };
+            }
+
+            // SubtractLocalLocal
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::Subtract] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SubtractLocalLocal { index1, index2 };
+            }
+            _ => continue,
+        }
+
+        // Invalidate the code buffer if there was an optimization done
+        code_buf = [Op::Nop, Op::Nop, Op::Nop, Op::Nop];
+    }
 }

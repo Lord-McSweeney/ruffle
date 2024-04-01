@@ -888,6 +888,8 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         }
 
         let op = &opcodes[self.ip as usize];
+        println!("|Op|?");
+        println!("|Op|{:?}", op);
         self.ip += 1;
         avm_debug!(self.avm2(), "Opcode: {op:?}");
 
@@ -1073,6 +1075,26 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 Op::Sxi8 => self.op_sxi8(),
                 Op::Sxi16 => self.op_sxi16(),
                 Op::Throw => self.op_throw(),
+                
+                // Custom ops for speed
+                Op::AddLocalConstant { index, constant } => self.op_add_local_constant(*index, *constant),
+                Op::AddLocalLocal { index1, index2 } => self.op_add_local_local(*index1, *index2),
+                Op::AddLocal0SlotConstant { slot_id, constant } => self.op_add_local0_slot_constant(*slot_id, *constant),
+                Op::BitAndLocalConstant { index, constant } => self.op_bitand_local_constant(*index, *constant),
+                Op::BitAndLocalLocal { index1, index2 } => self.op_bitand_local_local(*index1, *index2),
+                Op::ConstructLocal0Super => self.op_construct_local0_super(),
+                Op::DivideLocalLocal { index1, index2 } => self.op_divide_local_local(*index1, *index2),
+                Op::GetLocalSlot { index, slot_id } => self.op_get_local_slot(*index, *slot_id),
+                Op::IfLtLocalLocal { index1, index2, offset } => self.op_if_lt_local_local(*index1, *index2, *offset),
+                Op::IfNeLocalConstant { index, constant, offset } => self.op_if_ne_local_constant(*index, *constant, *offset),
+                Op::Li8Local { index } => self.op_li8_local(*index),
+                Op::MultiplyLocalLocal { index1, index2 } => self.op_multiply_local_local(*index1, *index2),
+                Op::PushScopeLocal0 => self.op_push_scope_local0(),
+                Op::SetLocalConstant { index, constant } => self.op_set_local_constant(*index, *constant),
+                Op::SetLocalNaN { index } => self.op_set_local_nan(*index),
+                Op::SetLocalNull { index } => self.op_set_local_null(*index),
+                Op::SubtractLocalLocal { index1, index2 } => self.op_subtract_local_local(*index1, *index2),
+
                 _ => {
                     tracing::info!("Encountered unimplemented AVM2 opcode {:?}", op);
 
@@ -2028,7 +2050,6 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
-        // TODO: Special handling required for `Date` and ECMA-357/E4X `XML`
         let sum_value = match (value1, value2) {
             // note: with not-yet-guaranteed assumption that Integer < 1<<28, this won't overflow.
             (Value::Integer(n1), Value::Integer(n2)) => (n1 + n2).into(),
@@ -2274,7 +2295,7 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             }
         };
 
-        self.push_stack(sub_value);
+        self.push_raw(sub_value);
 
         Ok(FrameControl::Continue)
     }
@@ -3143,5 +3164,265 @@ impl<'a, 'gc> Activation<'a, 'gc> {
     fn op_throw(&mut self) -> Result<FrameControl<'gc>, Error<'gc>> {
         let error_val = self.pop_stack();
         Err(Error::AvmError(error_val))
+    }
+
+
+    fn op_add_local_constant(&mut self, index: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let register_value = self.local_register(index);
+
+        let sum_value = match register_value {
+            // note: with not-yet-guaranteed assumption that Integer < 1<<28, this won't overflow.
+            Value::Integer(integer) => (integer + constant).into(),
+            Value::Number(number) => (number + constant as f64).into(),
+            Value::String(string) => Value::String(AvmString::concat(
+                self.context.gc_context,
+                string,
+                Value::from(constant).coerce_to_string(self)?,
+            )),
+            other => {
+                let prim_value = other.coerce_to_primitive(None, self)?;
+
+                match prim_value {
+                    Value::String(string) => Value::String(AvmString::concat(
+                        self.context.gc_context,
+                        string,
+                        Value::from(constant).coerce_to_string(self)?,
+                    )),
+                    other => Value::Number(
+                        other.coerce_to_number(self)? + constant as f64,
+                    ),
+                }
+            }
+        };
+
+        self.push_stack(sum_value);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_add_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2);
+        let value1 = self.local_register(index1);
+
+        let sum_value = match (value1, value2) {
+            // note: with not-yet-guaranteed assumption that Integer < 1<<28, this won't overflow.
+            (Value::Integer(n1), Value::Integer(n2)) => (n1 + n2).into(),
+            (Value::Number(n1), Value::Number(n2)) => (n1 + n2).into(),
+            (Value::String(s), value2) => Value::String(AvmString::concat(
+                self.context.gc_context,
+                s,
+                value2.coerce_to_string(self)?,
+            )),
+            (value1, Value::String(s)) => Value::String(AvmString::concat(
+                self.context.gc_context,
+                value1.coerce_to_string(self)?,
+                s,
+            )),
+            (Value::Object(value1), Value::Object(value2))
+                if (value1.as_xml_list_object().is_some() || value1.as_xml_object().is_some())
+                    && (value2.as_xml_list_object().is_some()
+                        || value2.as_xml_object().is_some()) =>
+            {
+                let list = XmlListObject::new(self, None, None);
+                // NOTE: Use append here since that correctly sets target property/object.
+                list.append(value1.into(), self.gc());
+                list.append(value2.into(), self.gc());
+                list.into()
+            }
+            (value1, value2) => {
+                let prim_value1 = value1.coerce_to_primitive(None, self)?;
+                let prim_value2 = value2.coerce_to_primitive(None, self)?;
+
+                match (prim_value1, prim_value2) {
+                    (Value::String(s), value2) => Value::String(AvmString::concat(
+                        self.context.gc_context,
+                        s,
+                        value2.coerce_to_string(self)?,
+                    )),
+                    (value1, Value::String(s)) => Value::String(AvmString::concat(
+                        self.context.gc_context,
+                        value1.coerce_to_string(self)?,
+                        s,
+                    )),
+                    (value1, value2) => Value::Number(
+                        value1.coerce_to_number(self)? + value2.coerce_to_number(self)?,
+                    ),
+                }
+            }
+        };
+
+        self.push_stack(sum_value);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_add_local0_slot_constant(&mut self, slot_id: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let register0 = self.local_register(0).coerce_to_object_or_typeerror(self, None)?;
+        let slot_value = register0.get_slot(slot_id)?;
+
+        let sum_value = match slot_value {
+            // note: with not-yet-guaranteed assumption that Integer < 1<<28, this won't overflow.
+            Value::Integer(integer) => (integer + constant).into(),
+            Value::Number(number) => (number + constant as f64).into(),
+            Value::String(string) => Value::String(AvmString::concat(
+                self.context.gc_context,
+                string,
+                Value::from(constant).coerce_to_string(self)?,
+            )),
+            other => {
+                let prim_value = other.coerce_to_primitive(None, self)?;
+
+                match prim_value {
+                    Value::String(string) => Value::String(AvmString::concat(
+                        self.context.gc_context,
+                        string,
+                        Value::from(constant).coerce_to_string(self)?,
+                    )),
+                    other => Value::Number(
+                        other.coerce_to_number(self)? + constant as f64,
+                    ),
+                }
+            }
+        };
+
+        self.push_stack(sum_value);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_bitand_local_constant(&mut self, index: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index).coerce_to_i32(self)?;
+
+        self.push_stack(value & constant);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_bitand_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_i32(self)?;
+        let value1 = self.local_register(index1).coerce_to_i32(self)?;
+
+        self.push_stack(value1 & value2);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_construct_local0_super(&mut self) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let receiver = self.local_register(0).coerce_to_object_or_typeerror(self, None)?;
+
+        self.super_init(receiver, &[])?;
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_divide_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_number(self)?;
+        let value1 = self.local_register(index1).coerce_to_number(self)?;
+
+        self.push_stack(value1 / value2);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_get_local_slot(&mut self, index: u32, slot_id: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let register = self.local_register(index).coerce_to_object_or_typeerror(self, None)?;
+        let slot_value = register.get_slot(slot_id)?;
+
+        self.push_stack(slot_value);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_if_lt_local_local(&mut self, index1: u32, index2: u32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2);
+        let value1 = self.local_register(index1);
+
+        if value1.abstract_lt(&value2, self)? == Some(true) {
+            self.ip += offset;
+        }
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_if_ne_local_constant(&mut self, index: u32, constant: i32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index);
+
+        if !value.abstract_eq(&Value::from(constant), self)? {
+            self.ip += offset;
+        }
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_li8_local(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let address = self.local_register(index).coerce_to_u32(self)? as usize;
+
+        let dm = self.domain_memory();
+        let dm = dm
+            .as_bytearray()
+            .ok_or_else(|| "Unable to get bytearray storage".to_string())?;
+        let val = dm.get(address);
+
+        if let Some(val) = val {
+            self.push_stack(val);
+        } else {
+            return Err(make_error_1506(self));
+        }
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_multiply_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_number(self)?;
+        let value1 = self.local_register(index1).coerce_to_number(self)?;
+
+        self.push_stack(value1 * value2);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_push_scope_local0(&mut self) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let object = self.local_register(0).coerce_to_object_or_typeerror(self, None)?;
+        self.push_scope(Scope::new(object));
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_set_local_constant(&mut self, index: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        self.set_local_register(index, constant);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_set_local_nan(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        self.set_local_register(index, f64::NAN);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_set_local_null(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        self.set_local_register(index, Value::Null);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_subtract_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2);
+        let value1 = self.local_register(index1);
+
+        let sub_value: Value<'gc> = match (value1, value2) {
+            // note: with not-yet-guaranteed assumption that Integer < 1<<28, this won't underflow.
+            (Value::Integer(n1), Value::Integer(n2)) => (n1 - n2).into(),
+            (Value::Number(n1), Value::Number(n2)) => (n1 - n2).into(),
+            _ => {
+                let value2 = value2.coerce_to_number(self)?;
+                let value1 = value1.coerce_to_number(self)?;
+                (value1 - value2).into()
+            }
+        };
+
+        self.push_stack(sub_value);
+
+        Ok(FrameControl::Continue)
     }
 }
