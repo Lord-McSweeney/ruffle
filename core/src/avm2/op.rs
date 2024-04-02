@@ -351,11 +351,19 @@ pub enum Op<'gc> {
         slot_id: u32,
         constant: i32,
     },
+    AddILocalLocal {
+        index1: u32,
+        index2: u32,
+    },
     BitAndLocalConstant {
         index: u32,
         constant: i32,
     },
     BitAndLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    BitOrLocalLocal {
         index1: u32,
         index2: u32,
     },
@@ -367,6 +375,12 @@ pub enum Op<'gc> {
     GetLocalSlot {
         index: u32,
         slot_id: u32,
+    },
+    IfLeLocalLocal {
+        index1: u32,
+        index2: u32,
+
+        offset: i32,
     },
     IfLtLocalConstant {
         index: u32,
@@ -398,7 +412,19 @@ pub enum Op<'gc> {
     Li8Local {
         index: u32,
     },
+    ModuloLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
     MultiplyLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    MultiplyILocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    NextValueLocalLocal {
         index1: u32,
         index2: u32,
     },
@@ -415,6 +441,21 @@ pub enum Op<'gc> {
     },
     SetLocalNull {
         index: u32,
+    },
+    SetLocalSlotBoolean {
+        index: u32,
+        slot_id: u32,
+        boolean: bool,
+    },
+    SetLocalSlotConstant {
+        index: u32,
+        slot_id: u32,
+        constant: i32,
+    },
+    SetLocalSlotLocal {
+        index1: u32,
+        slot_id: u32,
+        index2: u32,
     },
     SubtractLocalLocal {
         index1: u32,

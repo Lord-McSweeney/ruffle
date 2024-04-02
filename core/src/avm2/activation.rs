@@ -1078,23 +1078,32 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 Op::AddLocalConstant { index, constant } => self.op_add_local_constant(*index, *constant),
                 Op::AddLocalLocal { index1, index2 } => self.op_add_local_local(*index1, *index2),
                 Op::AddLocal0SlotConstant { slot_id, constant } => self.op_add_local0_slot_constant(*slot_id, *constant),
+                Op::AddILocalLocal { index1, index2 } => self.op_add_i_local_local(*index1, *index2),
                 Op::BitAndLocalConstant { index, constant } => self.op_bitand_local_constant(*index, *constant),
                 Op::BitAndLocalLocal { index1, index2 } => self.op_bitand_local_local(*index1, *index2),
+                Op::BitOrLocalLocal { index1, index2 } => self.op_bitor_local_local(*index1, *index2),
                 Op::ConstructLocal0Super => self.op_construct_local0_super(),
                 Op::DivideLocalLocal { index1, index2 } => self.op_divide_local_local(*index1, *index2),
                 Op::GetLocalSlot { index, slot_id } => self.op_get_local_slot(*index, *slot_id),
+                Op::IfLeLocalLocal { index1, index2, offset } => self.op_if_le_local_local(*index1, *index2, *offset),
                 Op::IfLtLocalConstant { index, constant, offset } => self.op_if_lt_local_constant(*index, *constant, *offset),
                 Op::IfLtLocalLocal { index1, index2, offset } => self.op_if_lt_local_local(*index1, *index2, *offset),
                 Op::IfNeLocalConstant { index, constant, offset } => self.op_if_ne_local_constant(*index, *constant, *offset),
                 Op::IfNgtLocalConstant { index, constant, offset } => self.op_if_ngt_local_constant(*index, *constant, *offset),
                 Op::IncrementLocalCoerceU { index } => self.op_increment_local_coerce_u(*index),
                 Op::Li8Local { index } => self.op_li8_local(*index),
+                Op::ModuloLocalLocal { index1, index2 } => self.op_modulo_local_local(*index1, *index2),
                 Op::MultiplyLocalLocal { index1, index2 } => self.op_multiply_local_local(*index1, *index2),
+                Op::MultiplyILocalLocal { index1, index2 } => self.op_multiply_i_local_local(*index1, *index2),
+                Op::NextValueLocalLocal { index1, index2 } => self.op_next_value_local_local(*index1, *index2),
                 Op::PushScopeLocal0 => self.op_push_scope_local0(),
                 Op::SetLocalAddICoerceI { index } => self.op_set_local_add_i_coerce_i(*index),
                 Op::SetLocalConstant { index, constant } => self.op_set_local_constant(*index, *constant),
                 Op::SetLocalNaN { index } => self.op_set_local_nan(*index),
                 Op::SetLocalNull { index } => self.op_set_local_null(*index),
+                Op::SetLocalSlotBoolean { index, slot_id, boolean } => self.op_set_local_slot_boolean(*index, *slot_id, *boolean),
+                Op::SetLocalSlotConstant { index, slot_id, constant } => self.op_set_local_slot_constant(*index, *slot_id, *constant),
+                Op::SetLocalSlotLocal { index1, slot_id, index2 } => self.op_set_local_slot_local(*index1, *slot_id, *index2),
                 Op::SubtractLocalLocal { index1, index2 } => self.op_subtract_local_local(*index1, *index2),
 
                 _ => {
@@ -3292,6 +3301,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
+    fn op_add_i_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_i32(self)?;
+        let value1 = self.local_register(index1).coerce_to_i32(self)?;
+
+        self.push_stack(value1.wrapping_add(value2));
+
+        Ok(FrameControl::Continue)
+    }
+
     fn op_bitand_local_constant(&mut self, index: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value = self.local_register(index).coerce_to_i32(self)?;
 
@@ -3305,6 +3323,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         let value1 = self.local_register(index1).coerce_to_i32(self)?;
 
         self.push_stack(value1 & value2);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_bitor_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_i32(self)?;
+        let value1 = self.local_register(index1).coerce_to_i32(self)?;
+
+        self.push_stack(value1 | value2);
 
         Ok(FrameControl::Continue)
     }
@@ -3331,6 +3358,17 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         let slot_value = register.get_slot(slot_id)?;
 
         self.push_stack(slot_value);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_if_le_local_local(&mut self, index1: u32, index2: u32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2);
+        let value1 = self.local_register(index1);
+
+        if value2.abstract_lt(&value1, self)? == Some(false) {
+            self.ip += offset;
+        }
 
         Ok(FrameControl::Continue)
     }
@@ -3403,11 +3441,40 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
+    fn op_modulo_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_number(self)?;
+        let value1 = self.local_register(index1).coerce_to_number(self)?;
+
+        self.push_raw(value1 % value2);
+
+        Ok(FrameControl::Continue)
+    }
+
     fn op_multiply_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.local_register(index2).coerce_to_number(self)?;
         let value1 = self.local_register(index1).coerce_to_number(self)?;
 
         self.push_stack(value1 * value2);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_multiply_i_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_i32(self)?;
+        let value1 = self.local_register(index1).coerce_to_i32(self)?;
+
+        self.push_stack(value1.wrapping_mul(value2));
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_next_value_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let cur_index = self.local_register(index2).coerce_to_number(self)?;
+        let object = self.local_register(index1).coerce_to_object_or_typeerror(self, None)?;
+
+        let value = object.get_enumerant_value(cur_index as u32, self)?;
+
+        self.push_stack(value);
 
         Ok(FrameControl::Continue)
     }
@@ -3445,6 +3512,27 @@ impl<'a, 'gc> Activation<'a, 'gc> {
 
     fn op_set_local_null(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
         self.set_local_register(index, Value::Null);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_set_local_slot_boolean(&mut self, index: u32, slot_id: u32, boolean: bool) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let local = self.local_register(index).coerce_to_object_or_typeerror(self, None)?;
+        local.set_slot(slot_id, boolean.into(), self)?;
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_set_local_slot_constant(&mut self, index: u32, slot_id: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let local = self.local_register(index).coerce_to_object_or_typeerror(self, None)?;
+        local.set_slot(slot_id, constant.into(), self)?;
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_set_local_slot_local(&mut self, index1: u32, slot_id: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let local = self.local_register(index1).coerce_to_object_or_typeerror(self, None)?;
+        local.set_slot(slot_id, self.local_register(index2), self)?;
 
         Ok(FrameControl::Continue)
     }
