@@ -888,8 +888,6 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         }
 
         let op = &opcodes[self.ip as usize];
-        println!("|Op|?");
-        println!("|Op|{:?}", op);
         self.ip += 1;
         avm_debug!(self.avm2(), "Opcode: {op:?}");
 
@@ -1085,11 +1083,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 Op::ConstructLocal0Super => self.op_construct_local0_super(),
                 Op::DivideLocalLocal { index1, index2 } => self.op_divide_local_local(*index1, *index2),
                 Op::GetLocalSlot { index, slot_id } => self.op_get_local_slot(*index, *slot_id),
+                Op::IfLtLocalConstant { index, constant, offset } => self.op_if_lt_local_constant(*index, *constant, *offset),
                 Op::IfLtLocalLocal { index1, index2, offset } => self.op_if_lt_local_local(*index1, *index2, *offset),
                 Op::IfNeLocalConstant { index, constant, offset } => self.op_if_ne_local_constant(*index, *constant, *offset),
+                Op::IfNgtLocalConstant { index, constant, offset } => self.op_if_ngt_local_constant(*index, *constant, *offset),
+                Op::IncrementLocalCoerceU { index } => self.op_increment_local_coerce_u(*index),
                 Op::Li8Local { index } => self.op_li8_local(*index),
                 Op::MultiplyLocalLocal { index1, index2 } => self.op_multiply_local_local(*index1, *index2),
                 Op::PushScopeLocal0 => self.op_push_scope_local0(),
+                Op::SetLocalAddICoerceI { index } => self.op_set_local_add_i_coerce_i(*index),
                 Op::SetLocalConstant { index, constant } => self.op_set_local_constant(*index, *constant),
                 Op::SetLocalNaN { index } => self.op_set_local_nan(*index),
                 Op::SetLocalNull { index } => self.op_set_local_null(*index),
@@ -3333,6 +3335,16 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
+    fn op_if_lt_local_constant(&mut self, index: u32, constant: i32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index);
+
+        if value.abstract_lt(&Value::from(constant), self)? == Some(true) {
+            self.ip += offset;
+        }
+
+        Ok(FrameControl::Continue)
+    }
+
     fn op_if_lt_local_local(&mut self, index1: u32, index2: u32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.local_register(index2);
         let value1 = self.local_register(index1);
@@ -3350,6 +3362,25 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         if !value.abstract_eq(&Value::from(constant), self)? {
             self.ip += offset;
         }
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_if_ngt_local_constant(&mut self, index: u32, constant: i32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index);
+
+        if !Value::from(constant).abstract_lt(&value, self)?.unwrap_or(false) {
+            self.ip += offset;
+        }
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_increment_local_coerce_u(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index).coerce_to_number(self)?;
+        let coerced_value = crate::ecma_conversions::f64_to_wrapping_u32(value + 1.0);
+
+        self.set_local_register(index, coerced_value);
 
         Ok(FrameControl::Continue)
     }
@@ -3384,6 +3415,18 @@ impl<'a, 'gc> Activation<'a, 'gc> {
     fn op_push_scope_local0(&mut self) -> Result<FrameControl<'gc>, Error<'gc>> {
         let object = self.local_register(0).coerce_to_object_or_typeerror(self, None)?;
         self.push_scope(Scope::new(object));
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_set_local_add_i_coerce_i(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.pop_stack().coerce_to_i32(self)?;
+        let value1 = self.pop_stack().coerce_to_i32(self)?;
+
+        // FIXME: Check if the value conversion and the `coerce_to_i32` are necessary
+        let value = Value::from(value1.wrapping_add(value2)).coerce_to_i32(self)?;
+
+        self.set_local_register(index, value);
 
         Ok(FrameControl::Continue)
     }

@@ -368,6 +368,12 @@ pub enum Op<'gc> {
         index: u32,
         slot_id: u32,
     },
+    IfLtLocalConstant {
+        index: u32,
+        constant: i32,
+
+        offset: i32,
+    },
     IfLtLocalLocal {
         index1: u32,
         index2: u32,
@@ -380,6 +386,15 @@ pub enum Op<'gc> {
 
         offset: i32,
     },
+    IfNgtLocalConstant {
+        index: u32,
+        constant: i32,
+
+        offset: i32,
+    },
+    IncrementLocalCoerceU {
+        index: u32,
+    },
     Li8Local {
         index: u32,
     },
@@ -388,6 +403,9 @@ pub enum Op<'gc> {
         index2: u32,
     },
     PushScopeLocal0,
+    SetLocalAddICoerceI {
+        index: u32,
+    },
     SetLocalConstant {
         index: u32,
         constant: i32,
