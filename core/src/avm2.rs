@@ -186,7 +186,6 @@ pub struct Avm2<'gc> {
     #[collect(require_static)]
     pub root_api_version: ApiVersion,
 
-    #[cfg(feature = "avm_debug")]
     pub debug_output: bool,
 
     pub optimizer_enabled: bool,
@@ -257,7 +256,6 @@ impl<'gc> Avm2<'gc> {
             // Set the lowest version for now - this will be overridden when we set our movie
             root_api_version: ApiVersion::AllVersions,
 
-            #[cfg(feature = "avm_debug")]
             debug_output: false,
 
             optimizer_enabled: true,
@@ -707,24 +705,14 @@ impl<'gc> Avm2<'gc> {
         self.scope_stack.pop();
     }
 
-    #[cfg(feature = "avm_debug")]
     #[inline]
     pub fn show_debug_output(&self) -> bool {
         self.debug_output
     }
 
-    #[cfg(not(feature = "avm_debug"))]
-    pub const fn show_debug_output(&self) -> bool {
-        false
-    }
-
-    #[cfg(feature = "avm_debug")]
     pub fn set_show_debug_output(&mut self, visible: bool) {
         self.debug_output = visible;
     }
-
-    #[cfg(not(feature = "avm_debug"))]
-    pub const fn set_show_debug_output(&self, _visible: bool) {}
 
     /// Gets the public namespace, versioned based on the current root SWF.
     /// See `AvmCore::findPublicNamespace()`

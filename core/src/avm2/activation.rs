@@ -1006,21 +1006,21 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 Op::SubtractI => self.op_subtract_i(),
                 Op::Swap => self.op_swap(),
                 Op::URShift => self.op_urshift(),
-                Op::Jump { offset } => self.op_jump(*offset),
-                Op::IfTrue { offset } => self.op_if_true(*offset),
-                Op::IfFalse { offset } => self.op_if_false(*offset),
-                Op::IfStrictEq { offset } => self.op_if_strict_eq(*offset),
-                Op::IfStrictNe { offset } => self.op_if_strict_ne(*offset),
-                Op::IfEq { offset } => self.op_if_eq(*offset),
-                Op::IfNe { offset } => self.op_if_ne(*offset),
-                Op::IfGe { offset } => self.op_if_ge(*offset),
-                Op::IfGt { offset } => self.op_if_gt(*offset),
-                Op::IfLe { offset } => self.op_if_le(*offset),
-                Op::IfLt { offset } => self.op_if_lt(*offset),
-                Op::IfNge { offset } => self.op_if_nge(*offset),
-                Op::IfNgt { offset } => self.op_if_ngt(*offset),
-                Op::IfNle { offset } => self.op_if_nle(*offset),
-                Op::IfNlt { offset } => self.op_if_nlt(*offset),
+                Op::Jump { new_ip } => self.op_jump(*new_ip),
+                Op::IfTrue { new_ip } => self.op_if_true(*new_ip),
+                Op::IfFalse { new_ip } => self.op_if_false(*new_ip),
+                Op::IfStrictEq { new_ip } => self.op_if_strict_eq(*new_ip),
+                Op::IfStrictNe { new_ip } => self.op_if_strict_ne(*new_ip),
+                Op::IfEq { new_ip } => self.op_if_eq(*new_ip),
+                Op::IfNe { new_ip } => self.op_if_ne(*new_ip),
+                Op::IfGe { new_ip } => self.op_if_ge(*new_ip),
+                Op::IfGt { new_ip } => self.op_if_gt(*new_ip),
+                Op::IfLe { new_ip } => self.op_if_le(*new_ip),
+                Op::IfLt { new_ip } => self.op_if_lt(*new_ip),
+                Op::IfNge { new_ip } => self.op_if_nge(*new_ip),
+                Op::IfNgt { new_ip } => self.op_if_ngt(*new_ip),
+                Op::IfNle { new_ip } => self.op_if_nle(*new_ip),
+                Op::IfNlt { new_ip } => self.op_if_nlt(*new_ip),
                 Op::StrictEquals => self.op_strict_equals(),
                 Op::Equals => self.op_equals(),
                 Op::GreaterEquals => self.op_greater_equals(),
@@ -1078,23 +1078,27 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 Op::AddLocalConstant { index, constant } => self.op_add_local_constant(*index, *constant),
                 Op::AddLocalLocal { index1, index2 } => self.op_add_local_local(*index1, *index2),
                 Op::AddLocal0SlotConstant { slot_id, constant } => self.op_add_local0_slot_constant(*slot_id, *constant),
+                Op::AddILocalConstant { index, constant } => self.op_add_i_local_constant(*index, *constant),
                 Op::AddILocalLocal { index1, index2 } => self.op_add_i_local_local(*index1, *index2),
                 Op::BitAndLocalConstant { index, constant } => self.op_bitand_local_constant(*index, *constant),
                 Op::BitAndLocalLocal { index1, index2 } => self.op_bitand_local_local(*index1, *index2),
                 Op::BitOrLocalLocal { index1, index2 } => self.op_bitor_local_local(*index1, *index2),
                 Op::ConstructLocal0Super => self.op_construct_local0_super(),
                 Op::DivideLocalLocal { index1, index2 } => self.op_divide_local_local(*index1, *index2),
+                Op::GetIncLocalI { index } => self.op_get_inc_local_i(*index),
                 Op::GetLocalSlot { index, slot_id } => self.op_get_local_slot(*index, *slot_id),
-                Op::IfLeLocalLocal { index1, index2, offset } => self.op_if_le_local_local(*index1, *index2, *offset),
-                Op::IfLtLocalConstant { index, constant, offset } => self.op_if_lt_local_constant(*index, *constant, *offset),
-                Op::IfLtLocalLocal { index1, index2, offset } => self.op_if_lt_local_local(*index1, *index2, *offset),
-                Op::IfNeLocalConstant { index, constant, offset } => self.op_if_ne_local_constant(*index, *constant, *offset),
-                Op::IfNgtLocalConstant { index, constant, offset } => self.op_if_ngt_local_constant(*index, *constant, *offset),
+                Op::IfLeLocalLocal { index1, index2, new_ip } => self.op_if_le_local_local(*index1, *index2, *new_ip),
+                Op::IfLtLocalConstant { index, constant, new_ip } => self.op_if_lt_local_constant(*index, *constant, *new_ip),
+                Op::IfLtLocalLocal { index1, index2, new_ip } => self.op_if_lt_local_local(*index1, *index2, *new_ip),
+                Op::IfNeLocalConstant { index, constant, new_ip } => self.op_if_ne_local_constant(*index, *constant, *new_ip),
+                Op::IfNgtLocalConstant { index, constant, new_ip } => self.op_if_ngt_local_constant(*index, *constant, *new_ip),
                 Op::IncrementLocalCoerceU { index } => self.op_increment_local_coerce_u(*index),
                 Op::Li8Local { index } => self.op_li8_local(*index),
+                Op::Li32Local0Slot { slot_id } => self.op_li32_local0_slot(*slot_id),
                 Op::ModuloLocalLocal { index1, index2 } => self.op_modulo_local_local(*index1, *index2),
-                Op::MultiplyLocalLocal { index1, index2 } => self.op_multiply_local_local(*index1, *index2),
+                Op::MultiplyILocalConstant { index, constant } => self.op_multiply_i_local_constant(*index, *constant),
                 Op::MultiplyILocalLocal { index1, index2 } => self.op_multiply_i_local_local(*index1, *index2),
+                Op::MultiplyLocalLocal { index1, index2 } => self.op_multiply_local_local(*index1, *index2),
                 Op::NextValueLocalLocal { index1, index2 } => self.op_next_value_local_local(*index1, *index2),
                 Op::PushScopeLocal0 => self.op_push_scope_local0(),
                 Op::SetLocalAddICoerceI { index } => self.op_set_local_add_i_coerce_i(*index),
@@ -1104,6 +1108,7 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 Op::SetLocalSlotBoolean { index, slot_id, boolean } => self.op_set_local_slot_boolean(*index, *slot_id, *boolean),
                 Op::SetLocalSlotConstant { index, slot_id, constant } => self.op_set_local_slot_constant(*index, *slot_id, *constant),
                 Op::SetLocalSlotLocal { index1, slot_id, index2 } => self.op_set_local_slot_local(*index1, *slot_id, *index2),
+                Op::SubtractILocalConstant { index, constant } => self.op_subtract_i_local_constant(*index, *constant),
                 Op::SubtractLocalLocal { index1, index2 } => self.op_subtract_local_local(*index1, *index2),
 
                 _ => {
@@ -2339,159 +2344,159 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
-    fn op_jump(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
-        self.ip += offset;
+    fn op_jump(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        self.ip = new_ip;
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_true(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_true(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value = self.pop_stack().coerce_to_boolean();
 
         if value {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_false(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_false(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value = self.pop_stack().coerce_to_boolean();
 
         if !value {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_strict_eq(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_strict_eq(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value1.strict_eq(&value2) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_strict_ne(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_strict_ne(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if !value1.strict_eq(&value2) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_eq(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_eq(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value1.abstract_eq(&value2, self)? {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_ne(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_ne(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if !value1.abstract_eq(&value2, self)? {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_ge(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_ge(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value1.abstract_lt(&value2, self)? == Some(false) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_gt(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_gt(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value2.abstract_lt(&value1, self)? == Some(true) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_le(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_le(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value2.abstract_lt(&value1, self)? == Some(false) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_lt(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_lt(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value1.abstract_lt(&value2, self)? == Some(true) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_nge(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_nge(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value1.abstract_lt(&value2, self)?.unwrap_or(true) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_ngt(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_ngt(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if !value2.abstract_lt(&value1, self)?.unwrap_or(false) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_nle(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_nle(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if value2.abstract_lt(&value1, self)?.unwrap_or(true) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_nlt(&mut self, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_nlt(&mut self, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.pop_stack();
         let value1 = self.pop_stack();
 
         if !value1.abstract_lt(&value2, self)?.unwrap_or(false) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
@@ -2837,12 +2842,12 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             )
         })?;
 
-        let offset = case_offsets
+        let new_ip = case_offsets
             .get(index as usize)
             .copied()
             .unwrap_or(default_offset);
 
-        self.ip += offset;
+        self.ip = new_ip;
         Ok(FrameControl::Continue)
     }
 
@@ -3301,6 +3306,14 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
+    fn op_add_i_local_constant(&mut self, index: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index).coerce_to_i32(self)?;
+
+        self.push_stack(value.wrapping_add(constant));
+
+        Ok(FrameControl::Continue)
+    }
+
     fn op_add_i_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.local_register(index2).coerce_to_i32(self)?;
         let value1 = self.local_register(index1).coerce_to_i32(self)?;
@@ -3353,6 +3366,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
+    fn op_get_inc_local_i(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let original_value = self.local_register(index).coerce_to_i32(self)?;
+        self.set_local_register(index, original_value.wrapping_add(1));
+        
+        self.push_stack(original_value);
+
+        Ok(FrameControl::Continue)
+    }
+
     fn op_get_local_slot(&mut self, index: u32, slot_id: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let register = self.local_register(index).coerce_to_object_or_typeerror(self, None)?;
         let slot_value = register.get_slot(slot_id)?;
@@ -3362,53 +3384,53 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_le_local_local(&mut self, index1: u32, index2: u32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_le_local_local(&mut self, index1: u32, index2: u32, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.local_register(index2);
         let value1 = self.local_register(index1);
 
         if value2.abstract_lt(&value1, self)? == Some(false) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_lt_local_constant(&mut self, index: u32, constant: i32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_lt_local_constant(&mut self, index: u32, constant: i32, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value = self.local_register(index);
 
         if value.abstract_lt(&Value::from(constant), self)? == Some(true) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_lt_local_local(&mut self, index1: u32, index2: u32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_lt_local_local(&mut self, index1: u32, index2: u32, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.local_register(index2);
         let value1 = self.local_register(index1);
 
         if value1.abstract_lt(&value2, self)? == Some(true) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_ne_local_constant(&mut self, index: u32, constant: i32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_ne_local_constant(&mut self, index: u32, constant: i32, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value = self.local_register(index);
 
         if !value.abstract_eq(&Value::from(constant), self)? {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_if_ngt_local_constant(&mut self, index: u32, constant: i32, offset: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_if_ngt_local_constant(&mut self, index: u32, constant: i32, new_ip: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value = self.local_register(index);
 
         if !Value::from(constant).abstract_lt(&value, self)?.unwrap_or(false) {
-            self.ip += offset;
+            self.ip = new_ip;
         }
 
         Ok(FrameControl::Continue)
@@ -3441,20 +3463,40 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         Ok(FrameControl::Continue)
     }
 
-    fn op_modulo_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
-        let value2 = self.local_register(index2).coerce_to_number(self)?;
-        let value1 = self.local_register(index1).coerce_to_number(self)?;
+    fn op_li32_local0_slot(&mut self, slot_id: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let register0 = self.local_register(0).coerce_to_object_or_typeerror(self, None)?;
+        let slot_value = register0.get_slot(slot_id)?;
 
-        self.push_raw(value1 % value2);
+        let address = slot_value.coerce_to_u32(self)? as usize;
+
+        let dm = self.domain_memory();
+        let dm = dm
+            .as_bytearray()
+            .ok_or_else(|| "Unable to get bytearray storage".to_string())?;
+
+        if address > dm.len() - 4 {
+            return Err(make_error_1506(self));
+        }
+
+        let val = dm.read_at(4, address).map_err(|e| e.to_avm(self))?;
+        self.push_stack(i32::from_le_bytes(val.try_into().unwrap()));
 
         Ok(FrameControl::Continue)
     }
 
-    fn op_multiply_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+    fn op_modulo_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let value2 = self.local_register(index2).coerce_to_number(self)?;
         let value1 = self.local_register(index1).coerce_to_number(self)?;
 
-        self.push_stack(value1 * value2);
+        self.push_stack(value1 % value2);
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_multiply_i_local_constant(&mut self, index: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index).coerce_to_i32(self)?;
+
+        self.push_stack(value.wrapping_mul(constant));
 
         Ok(FrameControl::Continue)
     }
@@ -3464,6 +3506,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         let value1 = self.local_register(index1).coerce_to_i32(self)?;
 
         self.push_stack(value1.wrapping_mul(value2));
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_multiply_local_local(&mut self, index1: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value2 = self.local_register(index2).coerce_to_number(self)?;
+        let value1 = self.local_register(index1).coerce_to_number(self)?;
+
+        self.push_stack(value1 * value2);
 
         Ok(FrameControl::Continue)
     }
@@ -3533,6 +3584,14 @@ impl<'a, 'gc> Activation<'a, 'gc> {
     fn op_set_local_slot_local(&mut self, index1: u32, slot_id: u32, index2: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
         let local = self.local_register(index1).coerce_to_object_or_typeerror(self, None)?;
         local.set_slot(slot_id, self.local_register(index2), self)?;
+
+        Ok(FrameControl::Continue)
+    }
+
+    fn op_subtract_i_local_constant(&mut self, index: u32, constant: i32) -> Result<FrameControl<'gc>, Error<'gc>> {
+        let value = self.local_register(index).coerce_to_i32(self)?;
+
+        self.push_stack(value.wrapping_sub(constant));
 
         Ok(FrameControl::Continue)
     }

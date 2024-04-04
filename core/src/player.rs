@@ -897,7 +897,7 @@ impl Player {
         self.input.handle_event(&event);
         let is_mouse_button_changed = self.input.is_mouse_down() != prev_is_mouse_down;
 
-        if cfg!(feature = "avm_debug") {
+        //if cfg!(feature = "avm_debug") {
             match event {
                 PlayerEvent::KeyDown {
                     key_code: KeyCode::V,
@@ -967,7 +967,7 @@ impl Player {
                 }
                 _ => {}
             }
-        }
+        //}
 
         self.mutate_with_update_context(|context| {
             // Propagate button events.

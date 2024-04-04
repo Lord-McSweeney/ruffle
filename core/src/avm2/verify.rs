@@ -26,7 +26,7 @@ pub struct VerifiedMethodInfo<'gc> {
     pub exceptions: Vec<Exception<'gc>>,
 }
 
-#[derive(Collect)]
+#[derive(Collect, Debug)]
 #[collect(no_drop)]
 pub struct Exception<'gc> {
     pub from_offset: u32,
@@ -531,7 +531,7 @@ pub fn verify_method<'gc>(
             | AbcOp::IfTrue { offset }
             | AbcOp::Jump { offset } => {
                 let adjusted_result = adjust_jump_to_idx(i, *offset, true)?;
-                *offset = adjusted_result.1;
+                *offset = adjusted_result.0;
                 if let Some(jump_sources) = potential_jump_targets.get_mut(&adjusted_result.0) {
                     if let JumpSources::Known(sources) = jump_sources {
                         sources.push(i);
@@ -544,12 +544,12 @@ pub fn verify_method<'gc>(
                 // TODO: Add i to possible sources, like in the branch ops
 
                 let adjusted_default = adjust_jump_to_idx(i, lookup_switch.default_offset, false)?;
-                lookup_switch.default_offset = adjusted_default.1;
+                lookup_switch.default_offset = adjusted_default.0;
                 potential_jump_targets.insert(adjusted_default.0, JumpSources::Unknown);
 
                 for case in lookup_switch.case_offsets.iter_mut() {
                     let adjusted_case = adjust_jump_to_idx(i, *case, false)?;
-                    *case = adjusted_case.1;
+                    *case = adjusted_case.0;
                     potential_jump_targets.insert(adjusted_case.0, JumpSources::Unknown);
                 }
             }
@@ -570,6 +570,7 @@ pub fn verify_method<'gc>(
             method,
             &mut verified_code,
             potential_jump_targets,
+            &mut new_exceptions,
         );
     }
 
@@ -877,21 +878,21 @@ fn resolve_op<'gc>(
         AbcOp::SubtractI => Op::SubtractI,
         AbcOp::Swap => Op::Swap,
         AbcOp::URShift => Op::URShift,
-        AbcOp::Jump { offset } => Op::Jump { offset },
-        AbcOp::IfTrue { offset } => Op::IfTrue { offset },
-        AbcOp::IfFalse { offset } => Op::IfFalse { offset },
-        AbcOp::IfStrictEq { offset } => Op::IfStrictEq { offset },
-        AbcOp::IfStrictNe { offset } => Op::IfStrictNe { offset },
-        AbcOp::IfEq { offset } => Op::IfEq { offset },
-        AbcOp::IfNe { offset } => Op::IfNe { offset },
-        AbcOp::IfGe { offset } => Op::IfGe { offset },
-        AbcOp::IfGt { offset } => Op::IfGt { offset },
-        AbcOp::IfLe { offset } => Op::IfLe { offset },
-        AbcOp::IfLt { offset } => Op::IfLt { offset },
-        AbcOp::IfNge { offset } => Op::IfNge { offset },
-        AbcOp::IfNgt { offset } => Op::IfNgt { offset },
-        AbcOp::IfNle { offset } => Op::IfNle { offset },
-        AbcOp::IfNlt { offset } => Op::IfNlt { offset },
+        AbcOp::Jump { offset } => Op::Jump { new_ip: offset },
+        AbcOp::IfTrue { offset } => Op::IfTrue { new_ip: offset },
+        AbcOp::IfFalse { offset } => Op::IfFalse { new_ip: offset },
+        AbcOp::IfStrictEq { offset } => Op::IfStrictEq { new_ip: offset },
+        AbcOp::IfStrictNe { offset } => Op::IfStrictNe { new_ip: offset },
+        AbcOp::IfEq { offset } => Op::IfEq { new_ip: offset },
+        AbcOp::IfNe { offset } => Op::IfNe { new_ip: offset },
+        AbcOp::IfGe { offset } => Op::IfGe { new_ip: offset },
+        AbcOp::IfGt { offset } => Op::IfGt { new_ip: offset },
+        AbcOp::IfLe { offset } => Op::IfLe { new_ip: offset },
+        AbcOp::IfLt { offset } => Op::IfLt { new_ip: offset },
+        AbcOp::IfNge { offset } => Op::IfNge { new_ip: offset },
+        AbcOp::IfNgt { offset } => Op::IfNgt { new_ip: offset },
+        AbcOp::IfNle { offset } => Op::IfNle { new_ip: offset },
+        AbcOp::IfNlt { offset } => Op::IfNlt { new_ip: offset },
         AbcOp::StrictEquals => Op::StrictEquals,
         AbcOp::Equals => Op::Equals,
         AbcOp::GreaterEquals => Op::GreaterEquals,

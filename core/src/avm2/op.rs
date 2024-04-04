@@ -170,46 +170,46 @@ pub enum Op<'gc> {
         index_register: u32,
     },
     IfEq {
-        offset: i32,
+        new_ip: i32,
     },
     IfFalse {
-        offset: i32,
+        new_ip: i32,
     },
     IfGe {
-        offset: i32,
+        new_ip: i32,
     },
     IfGt {
-        offset: i32,
+        new_ip: i32,
     },
     IfLe {
-        offset: i32,
+        new_ip: i32,
     },
     IfLt {
-        offset: i32,
+        new_ip: i32,
     },
     IfNe {
-        offset: i32,
+        new_ip: i32,
     },
     IfNge {
-        offset: i32,
+        new_ip: i32,
     },
     IfNgt {
-        offset: i32,
+        new_ip: i32,
     },
     IfNle {
-        offset: i32,
+        new_ip: i32,
     },
     IfNlt {
-        offset: i32,
+        new_ip: i32,
     },
     IfStrictEq {
-        offset: i32,
+        new_ip: i32,
     },
     IfStrictNe {
-        offset: i32,
+        new_ip: i32,
     },
     IfTrue {
-        offset: i32,
+        new_ip: i32,
     },
     In,
     IncLocal {
@@ -229,7 +229,7 @@ pub enum Op<'gc> {
     },
     IsTypeLate,
     Jump {
-        offset: i32,
+        new_ip: i32,
     },
     Kill {
         index: u32,
@@ -351,6 +351,10 @@ pub enum Op<'gc> {
         slot_id: u32,
         constant: i32,
     },
+    AddILocalConstant {
+        index: u32,
+        constant: i32,
+    },
     AddILocalLocal {
         index1: u32,
         index2: u32,
@@ -367,10 +371,13 @@ pub enum Op<'gc> {
         index1: u32,
         index2: u32,
     },
-    ConstructLocal0Super,
+    ConstructLocal0Super, // TODO: Is this necessary?
     DivideLocalLocal {
         index1: u32,
         index2: u32,
+    },
+    GetIncLocalI {
+        index: u32,
     },
     GetLocalSlot {
         index: u32,
@@ -380,31 +387,31 @@ pub enum Op<'gc> {
         index1: u32,
         index2: u32,
 
-        offset: i32,
+        new_ip: i32,
     },
     IfLtLocalConstant {
         index: u32,
         constant: i32,
 
-        offset: i32,
+        new_ip: i32,
     },
     IfLtLocalLocal {
         index1: u32,
         index2: u32,
 
-        offset: i32,
+        new_ip: i32,
     },
     IfNeLocalConstant {
         index: u32,
         constant: i32,
 
-        offset: i32,
+        new_ip: i32,
     },
     IfNgtLocalConstant {
         index: u32,
         constant: i32,
 
-        offset: i32,
+        new_ip: i32,
     },
     IncrementLocalCoerceU {
         index: u32,
@@ -412,7 +419,18 @@ pub enum Op<'gc> {
     Li8Local {
         index: u32,
     },
+    Li32Local0Slot {
+        slot_id: u32,
+    },
     ModuloLocalLocal {
+        index1: u32,
+        index2: u32,
+    },
+    MultiplyILocalConstant {
+        index: u32,
+        constant: i32,
+    },
+    MultiplyILocalLocal {
         index1: u32,
         index2: u32,
     },
@@ -420,15 +438,11 @@ pub enum Op<'gc> {
         index1: u32,
         index2: u32,
     },
-    MultiplyILocalLocal {
-        index1: u32,
-        index2: u32,
-    },
     NextValueLocalLocal {
         index1: u32,
         index2: u32,
     },
-    PushScopeLocal0,
+    PushScopeLocal0, // TODO: Is this necessary?
     SetLocalAddICoerceI {
         index: u32,
     },
@@ -456,6 +470,10 @@ pub enum Op<'gc> {
         index1: u32,
         slot_id: u32,
         index2: u32,
+    },
+    SubtractILocalConstant {
+        index: u32,
+        constant: i32,
     },
     SubtractLocalLocal {
         index1: u32,

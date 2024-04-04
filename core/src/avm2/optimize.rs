@@ -5,7 +5,7 @@ use crate::avm2::multiname::Multiname;
 use crate::avm2::object::ClassObject;
 use crate::avm2::op::Op;
 use crate::avm2::property::Property;
-use crate::avm2::verify::JumpSources;
+use crate::avm2::verify::{Exception, JumpSources};
 
 use gc_arena::{Gc, GcCell};
 use std::collections::HashMap;
@@ -152,6 +152,7 @@ pub fn optimize<'gc>(
     method: &BytecodeMethod<'gc>,
     code: &mut Vec<Op<'gc>>,
     jump_targets: HashMap<i32, JumpSources>,
+    exceptions: &mut Vec<Exception<'gc>>,
 ) {
     // These make the code less readable
     #![allow(clippy::manual_filter)]
@@ -1069,17 +1070,27 @@ pub fn optimize<'gc>(
             }
 
             // AddLocal0SlotConstant
-            [Op::GetLocal { index: 0 }, Op::GetSlot { index: slot_id }, Op::PushByte { value: constant }, Op::Add] => {
-                code[i - 3] = Op::Nop;
+            [_, Op::GetLocalSlot { index: 0, slot_id }, Op::PushByte { value: constant }, Op::Add] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
                 code[i] = Op::AddLocal0SlotConstant { slot_id, constant: constant as i32 };
             }
-            [Op::GetLocal { index: 0 }, Op::GetSlot { index: slot_id }, Op::PushShort { value: constant }, Op::Add] => {
-                code[i - 3] = Op::Nop;
+            [_, Op::GetLocalSlot { index: 0, slot_id }, Op::PushShort { value: constant }, Op::Add] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
                 code[i] = Op::AddLocal0SlotConstant { slot_id, constant: constant as i32 };
+            }
+
+            // AddILocalConstant
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::AddI] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddILocalConstant { index, constant: constant as i32 };
+            }
+            [_, Op::GetLocal { index }, Op::PushShort { value: constant }, Op::AddI] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::AddILocalConstant { index, constant: constant as i32 };
             }
 
             // AddILocalLocal
@@ -1141,78 +1152,78 @@ pub fn optimize<'gc>(
             }
 
             // IfLeLocalLocal
-            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::IfLe { offset }] => {
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::IfLe { new_ip }] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfLeLocalLocal { index1, index2, offset };
+                code[i] = Op::IfLeLocalLocal { index1, index2, new_ip };
             }
 
             // IfLtLocalConstant
-            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::IfLt { offset }] => {
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::IfLt { new_ip }] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfLtLocalConstant { index, constant: constant as i32, offset };
+                code[i] = Op::IfLtLocalConstant { index, constant: constant as i32, new_ip };
             }
-            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::IfLt { offset }] => {
+            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::IfLt { new_ip }] => {
                 code[i - 3] = Op::Nop;
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfLtLocalConstant { index, constant: constant as i32, offset };
+                code[i] = Op::IfLtLocalConstant { index, constant: constant as i32, new_ip };
             }
 
             // IfLtLocalLocal
-            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::IfLt { offset }] => {
+            [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::IfLt { new_ip }] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfLtLocalLocal { index1, index2, offset };
+                code[i] = Op::IfLtLocalLocal { index1, index2, new_ip };
             }
 
             // IfNeLocalConstant
-            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::IfNe { offset }] => {
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::IfNe { new_ip }] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNeLocalConstant { index, constant: constant as i32, offset };
+                code[i] = Op::IfNeLocalConstant { index, constant: constant as i32, new_ip };
             }
-            [_, Op::GetLocal { index }, Op::PushInt { value: constant }, Op::IfNe { offset }] => {
+            [_, Op::GetLocal { index }, Op::PushInt { value: constant }, Op::IfNe { new_ip }] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNeLocalConstant { index, constant, offset };
+                code[i] = Op::IfNeLocalConstant { index, constant, new_ip };
             }
-            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::IfNe { offset }] => {
+            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::IfNe { new_ip }] => {
                 code[i - 3] = Op::Nop;
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNeLocalConstant { index, constant: constant as i32, offset };
+                code[i] = Op::IfNeLocalConstant { index, constant: constant as i32, new_ip };
             }
-            [Op::GetLocal { index }, Op::PushInt { value: constant }, Op::Nop, Op::IfNe { offset }] => {
+            [Op::GetLocal { index }, Op::PushInt { value: constant }, Op::Nop, Op::IfNe { new_ip }] => {
                 code[i - 3] = Op::Nop;
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNeLocalConstant { index, constant, offset };
+                code[i] = Op::IfNeLocalConstant { index, constant, new_ip };
             }
 
             // IfNgtLocalConstant
-            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::IfNgt { offset }] => {
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::IfNgt { new_ip }] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNgtLocalConstant { index, constant: constant as i32, offset };
+                code[i] = Op::IfNgtLocalConstant { index, constant: constant as i32, new_ip };
             }
-            [_, Op::GetLocal { index }, Op::PushInt { value: constant }, Op::IfNgt { offset }] => {
+            [_, Op::GetLocal { index }, Op::PushInt { value: constant }, Op::IfNgt { new_ip }] => {
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNgtLocalConstant { index, constant, offset };
+                code[i] = Op::IfNgtLocalConstant { index, constant, new_ip };
             }
-            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::IfNgt { offset }] => {
+            [Op::GetLocal { index }, Op::PushByte { value: constant }, Op::Nop, Op::IfNgt { new_ip }] => {
                 code[i - 3] = Op::Nop;
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNgtLocalConstant { index, constant: constant as i32, offset };
+                code[i] = Op::IfNgtLocalConstant { index, constant: constant as i32, new_ip };
             }
-            [Op::GetLocal { index }, Op::PushInt { value: constant }, Op::Nop, Op::IfNgt { offset }] => {
+            [Op::GetLocal { index }, Op::PushInt { value: constant }, Op::Nop, Op::IfNgt { new_ip }] => {
                 code[i - 3] = Op::Nop;
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
-                code[i] = Op::IfNgtLocalConstant { index, constant, offset };
+                code[i] = Op::IfNgtLocalConstant { index, constant, new_ip };
             }
 
             // IncrementLocalCoerceU
@@ -1223,17 +1234,34 @@ pub fn optimize<'gc>(
                 code[i] = Op::IncrementLocalCoerceU { index: index1 };
             }
 
+            // GetIncLocalI
+            [_, Op::GetLocal { index: index1 }, Op::IncLocalI { index: index2 }, Op::CoerceI] if index1 == index2 => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::GetIncLocalI { index: index1 };
+            }
+
             // GetLocalSlot
-            // Ensure that this doesn't interfere with other optimizations, such as AddLocal0SlotInt
-            [Op::GetLocal { index }, Op::GetSlot { index: slot_id }, _, _] => {
-                code[i - 3] = Op::Nop;
-                code[i - 2] = Op::GetLocalSlot { index, slot_id };
+            [_, _, Op::GetLocal { index }, Op::GetSlot { index: slot_id }] => {
+                code[i - 1] = Op::Nop;
+                code[i] = Op::GetLocalSlot { index, slot_id };
+
+                // Ensure that this doesn't interfere with other optimizations, such as AddLocal0SlotInt
+                code_buf = [Op::Nop, Op::Nop, Op::Nop, Op::GetLocalSlot { index, slot_id }];
+                continue;
             }
 
             // Li8Local
             [_, _, Op::GetLocal { index }, Op::Li8] => {
                 code[i - 1] = Op::Nop;
                 code[i] = Op::Li8Local { index };
+            }
+
+            // Li32Local0Slot
+            [_, _, Op::GetLocalSlot { index: 0, slot_id }, Op::Li32] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::Li32Local0Slot { slot_id };
             }
 
             // ModuloLocalLocal
@@ -1248,6 +1276,18 @@ pub fn optimize<'gc>(
                 code[i - 2] = Op::Nop;
                 code[i - 1] = Op::Nop;
                 code[i] = Op::MultiplyLocalLocal { index1, index2 };
+            }
+
+            // MultiplyILocalConstant
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::MultiplyI] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::MultiplyILocalConstant { index, constant: constant as i32 };
+            }
+            [_, Op::GetLocal { index }, Op::PushShort { value: constant }, Op::MultiplyI] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::MultiplyILocalConstant { index, constant: constant as i32 };
             }
 
             // MultiplyILocalLocal
@@ -1362,6 +1402,18 @@ pub fn optimize<'gc>(
                 code[i] = Op::SetLocalSlotLocal { index1, slot_id, index2 };
             }
 
+            // SubtractILocalConstant
+            [_, Op::GetLocal { index }, Op::PushByte { value: constant }, Op::SubtractI] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SubtractILocalConstant { index, constant: constant as i32 };
+            }
+            [_, Op::GetLocal { index }, Op::PushShort { value: constant }, Op::SubtractI] => {
+                code[i - 2] = Op::Nop;
+                code[i - 1] = Op::Nop;
+                code[i] = Op::SubtractILocalConstant { index, constant: constant as i32 };
+            }
+
             // SubtractLocalLocal
             [_, Op::GetLocal { index: index1 }, Op::GetLocal { index: index2 }, Op::Subtract] => {
                 code[i - 2] = Op::Nop;
@@ -1374,4 +1426,74 @@ pub fn optimize<'gc>(
         // Invalidate the code buffer if there was an optimization done
         code_buf = [Op::Nop, Op::Nop, Op::Nop, Op::Nop];
     }
+
+    drop(code_copy);
+
+    // Third optimization pass: remove no-op ops and rewrite jump offsets to handle them
+    // We have to do this in two stages because 
+    let mut new_code = Vec::new();
+    let mut removed_op_positions = Vec::new();
+    for (i, op) in code.iter().enumerate() {
+        match op {
+            Op::Nop | Op::CoerceA => {
+                if !jump_targets.contains_key(&(i as i32)) {
+                    removed_op_positions.push(i);
+                } else {
+                    new_code.push(op.clone());
+                }
+            }
+            _ => new_code.push(op.clone()),
+        }
+    }
+
+    for op in new_code.iter_mut() {
+        match op {
+            Op::IfEq { new_ip }
+            | Op::IfFalse { new_ip }
+            | Op::IfGe { new_ip }
+            | Op::IfGt { new_ip }
+            | Op::IfLe { new_ip }
+            | Op::IfLt { new_ip }
+            | Op::IfNe { new_ip }
+            | Op::IfNge { new_ip }
+            | Op::IfNgt { new_ip }
+            | Op::IfNle { new_ip }
+            | Op::IfNlt { new_ip }
+            | Op::IfStrictEq { new_ip }
+            | Op::IfStrictNe { new_ip }
+            | Op::IfTrue { new_ip }
+            | Op::Jump { new_ip }
+            | Op::IfLeLocalLocal { new_ip, .. }
+            | Op::IfLtLocalConstant { new_ip, .. }
+            | Op::IfLtLocalLocal { new_ip, .. }
+            | Op::IfNeLocalConstant { new_ip, .. }
+            | Op::IfNgtLocalConstant { new_ip, .. } => {
+                let prev_count = removed_op_positions.iter().filter(|n| *n < &(*new_ip as usize)).count();
+                *new_ip -= prev_count as i32;
+            }
+            Op::LookupSwitch(ref mut lookup_switch) => {
+                let prev_default_count = removed_op_positions.iter().filter(|n| *n < &(lookup_switch.default_offset as usize)).count();
+                lookup_switch.default_offset -= prev_default_count as i32;
+
+                for case in lookup_switch.case_offsets.iter_mut() {
+                    let prev_default_count = removed_op_positions.iter().filter(|n| *n < &(*case as usize)).count();
+                    *case -= prev_default_count as i32;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for exception in exceptions.iter_mut() {
+        let prev_from_offset = removed_op_positions.iter().filter(|n| *n < &(exception.from_offset as usize)).count();
+        exception.from_offset -= prev_from_offset as u32;
+
+        let prev_to_offset = removed_op_positions.iter().filter(|n| *n < &(exception.to_offset as usize)).count();
+        exception.to_offset -= prev_to_offset as u32;
+
+        let prev_target_offset = removed_op_positions.iter().filter(|n| *n < &(exception.target_offset as usize)).count();
+        exception.target_offset -= prev_target_offset as u32;
+    }
+
+    let _ = std::mem::replace(code, new_code);
 }
