@@ -27,6 +27,7 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell<'gc, Cl
         None,
         Method::from_builtin(void_init, "", mc),
         Method::from_builtin(void_init, "", mc),
+        activation.domain(),
         mc,
     );
 

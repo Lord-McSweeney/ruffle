@@ -7,14 +7,13 @@ use crate::avm2::object::{ClassObject, Object};
 use crate::avm2::script::TranslationUnit;
 use crate::avm2::traits::{Trait, TraitKind};
 use crate::avm2::value::Value;
-use crate::avm2::Error;
-use crate::avm2::Multiname;
-use crate::avm2::Namespace;
-use crate::avm2::QName;
+use crate::avm2::vtable::PartialVTable;
+use crate::avm2::{Domain, Error, Multiname, Namespace, QName};
 use crate::context::UpdateContext;
 use bitflags::bitflags;
 use fnv::FnvHashMap;
 use gc_arena::{Collect, GcCell, Mutation};
+use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -96,6 +95,9 @@ pub struct Class<'gc> {
     /// superinterfaces, nor interfaces implemented by the superclass.
     direct_interfaces: Vec<Multiname<'gc>>,
 
+    /// Resolved interfaces for this class. They will be resolved in `link_interfaces`.
+    resolved_interfaces: Vec<GcCell<'gc, Class<'gc>>>,
+
     /// The instance allocator for this class.
     ///
     /// If `None`, then instances of this object will be allocated the same way
@@ -130,6 +132,8 @@ pub struct Class<'gc> {
     /// properties that would match.
     instance_traits: Vec<Trait<'gc>>,
 
+    instance_vtable: PartialVTable<'gc>,
+
     /// The class initializer for this class.
     ///
     /// Must be called once and only once prior to any use of this class.
@@ -160,6 +164,9 @@ pub struct Class<'gc> {
     /// System defined classes are allowed to have illegal trait configurations
     /// without throwing a VerifyError.
     is_system: bool,
+
+    /// The domain this class comes from.
+    domain: Domain<'gc>,
 
     /// The ClassObjects for this class.
     /// In almost all cases, this will either be empty or have a single object.
@@ -202,12 +209,13 @@ impl<'gc> Class<'gc> {
     /// required here; further methods allow further changes to the class.
     ///
     /// Classes created in this way cannot have traits loaded from an ABC file
-    /// using `load_traits`.
+    /// using `load_traits`. However, you must call `init_vtable` on the class.
     pub fn new(
         name: QName<'gc>,
         super_class: Option<GcCell<'gc, Class<'gc>>>,
         instance_init: Method<'gc>,
         class_init: Method<'gc>,
+        domain: Domain<'gc>,
         mc: &Mutation<'gc>,
     ) -> GcCell<'gc, Self> {
         let native_instance_init = instance_init;
@@ -221,16 +229,19 @@ impl<'gc> Class<'gc> {
                 attributes: ClassAttributes::empty(),
                 protected_namespace: None,
                 direct_interfaces: Vec::new(),
+                resolved_interfaces: Vec::new(),
                 instance_allocator: None,
                 instance_init,
                 native_instance_init,
                 instance_traits: Vec::new(),
+                instance_vtable: PartialVTable::empty(mc),
                 class_init,
                 class_initializer_called: false,
                 call_handler: None,
                 class_traits: Vec::new(),
                 traits_loaded: true,
                 is_system: true,
+                domain,
                 applications: FnvHashMap::default(),
                 class_objects: Vec::new(),
             },
@@ -288,6 +299,7 @@ impl<'gc> Class<'gc> {
             ),
             object_vector_cls.read().instance_init(),
             object_vector_cls.read().class_init(),
+            read.domain,
             mc,
         );
         new_class.write(mc).param = Some(Some(param));
@@ -323,7 +335,8 @@ impl<'gc> Class<'gc> {
     ///
     /// The returned class will be allocated, but no traits will be loaded. The
     /// caller is responsible for storing the class in the `TranslationUnit`
-    /// and calling `load_traits` to complete the trait-loading process.
+    /// and calling `load_traits` to complete the trait-loading process, and then
+    /// `init_vtable` to initialize the class's vtable.
     pub fn from_abc_index(
         unit: TranslationUnit<'gc>,
         class_index: u32,
@@ -436,16 +449,19 @@ impl<'gc> Class<'gc> {
                 attributes,
                 protected_namespace,
                 direct_interfaces: interfaces,
+                resolved_interfaces: Vec::new(),
                 instance_allocator,
                 instance_init,
                 native_instance_init,
                 instance_traits: Vec::new(),
+                instance_vtable: PartialVTable::empty(activation.context.gc_context),
                 class_init,
                 class_initializer_called: false,
                 call_handler: native_call_handler,
                 class_traits: Vec::new(),
                 traits_loaded: false,
                 is_system: false,
+                domain: activation.domain(),
                 applications: Default::default(),
                 class_objects: Vec::new(),
             },
@@ -468,7 +484,7 @@ impl<'gc> Class<'gc> {
             return Ok(());
         }
 
-        self.traits_loaded = true;
+        self.mark_traits_loaded();
 
         let abc = unit.abc();
         let abc_class: Result<&AbcClass, Error<'gc>> = abc
@@ -491,6 +507,87 @@ impl<'gc> Class<'gc> {
         for abc_trait in abc_class.traits.iter() {
             self.class_traits
                 .push(Trait::from_abc_trait(unit, abc_trait, activation)?);
+        }
+
+        Ok(())
+    }
+
+    pub fn init_vtable(&mut self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
+        if !self.traits_loaded {
+            panic!("Class traits should have been loaded before initializing vtable");
+        }
+
+        self.instance_vtable.init_vtable(
+            activation,
+            self.protected_namespace(),
+            &self.instance_traits,
+            self.super_class.map(|s| s.read().instance_vtable),
+        );
+
+        self.link_interfaces(activation)?;
+
+        Ok(())
+    }
+
+    /// Link this class to it's interfaces.
+    ///
+    /// This should be done after all instance traits has been resolved, as
+    /// instance traits will be resolved to their corresponding methods at this
+    /// time.
+    pub fn link_interfaces(&mut self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
+        let mut interfaces = Vec::with_capacity(self.direct_interfaces.len());
+
+        let mut dedup = HashSet::new();
+        let mut queue = vec![&*self];
+        while let Some(cls) = queue.pop() {
+            for interface_name in cls.direct_interfaces() {
+                let interface = self
+                    .domain
+                    .get_class(&mut activation.context, interface_name)
+                    .ok_or_else(|| {
+                        Error::from(format!("Could not resolve interface {interface_name:?}"))
+                    })?;
+
+                if !interface.read().is_interface() {
+                    return Err(format!(
+                        "Class {:?} is not an interface and cannot be implemented by classes",
+                        interface.read().name().local_name()
+                    )
+                    .into());
+                }
+
+                if dedup.insert(ClassHashWrapper(interface)) {
+                    queue.push(&interface.read());
+                    interfaces.push(interface);
+                }
+            }
+
+            if let Some(super_class) = cls.super_class() {
+                queue.push(&super_class.read());
+            }
+        }
+
+        self.resolved_interfaces = interfaces;
+
+        // FIXME - we should only be copying properties for newly-implemented
+        // interfaces (i.e. those that were not already implemented by the superclass)
+        // Otherwise, our behavior diverges from Flash Player in certain cases.
+        // See the ignored test 'tests/tests/swfs/avm2/weird_superinterface_properties/'
+        for interface in &self.resolved_interfaces {
+            let iface_read = interface.read();
+            for interface_trait in iface_read.instance_traits() {
+                if !interface_trait.name().namespace().is_public() {
+                    let public_name = QName::new(
+                        activation.context.avm2.public_namespace_vm_internal,
+                        interface_trait.name().local_name(),
+                    );
+                    self.instance_vtable.copy_property_for_interface(
+                        activation.context.gc_context,
+                        public_name,
+                        interface_trait.name(),
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -595,6 +692,7 @@ impl<'gc> Class<'gc> {
                 attributes: ClassAttributes::empty(),
                 protected_namespace: None,
                 direct_interfaces: Vec::new(),
+                resolved_interfaces: Vec::new(),
                 instance_allocator: None,
                 instance_init: Method::from_builtin(
                     |_, _, _| Ok(Value::Undefined),
@@ -607,6 +705,7 @@ impl<'gc> Class<'gc> {
                     activation.context.gc_context,
                 ),
                 instance_traits: traits,
+                instance_vtable: PartialVTable::empty(activation.context.gc_context),
                 class_init: Method::from_builtin(
                     |_, _, _| Ok(Value::Undefined),
                     "<Activation object class constructor>",
@@ -617,6 +716,7 @@ impl<'gc> Class<'gc> {
                 class_traits: Vec::new(),
                 traits_loaded: true,
                 is_system: false,
+                domain: activation.domain(),
                 applications: Default::default(),
                 class_objects: Vec::new(),
             },
@@ -645,6 +745,10 @@ impl<'gc> Class<'gc> {
 
     pub fn protected_namespace(&self) -> Option<Namespace<'gc>> {
         self.protected_namespace
+    }
+
+    pub fn resolved_interfaces(&self) -> &[GcCell<'gc, Class<'gc>>] {
+        &self.resolved_interfaces[..]
     }
 
     #[inline(never)]
@@ -835,6 +939,10 @@ impl<'gc> Class<'gc> {
         &self.instance_traits[..]
     }
 
+    pub fn instance_vtable(&self) -> PartialVTable<'gc> {
+        self.instance_vtable
+    }
+
     /// Get this class's instance allocator.
     ///
     /// If `None`, then you should use the instance allocator of the superclass
@@ -886,6 +994,10 @@ impl<'gc> Class<'gc> {
     /// Mark the class as initialized.
     pub fn mark_class_initialized(&mut self) {
         self.class_initializer_called = true;
+    }
+
+    pub fn mark_traits_loaded(&mut self) {
+        self.traits_loaded = true;
     }
 
     pub fn direct_interfaces(&self) -> &[Multiname<'gc>] {

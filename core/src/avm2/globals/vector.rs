@@ -919,6 +919,7 @@ pub fn create_generic_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell
         Some(activation.avm2().classes().object.inner_class_definition()),
         Method::from_builtin(generic_init, "<Vector instance initializer>", mc),
         Method::from_builtin(generic_init, "<Vector class initializer>", mc),
+        activation.domain(),
         mc,
     );
 
@@ -952,6 +953,7 @@ pub fn create_builtin_class<'gc>(
         Some(activation.avm2().classes().object.inner_class_definition()),
         Method::from_builtin(instance_init, "<Vector.<T> instance initializer>", mc),
         Method::from_builtin(class_init, "<Vector.<T> class initializer>", mc),
+        activation.domain(),
         mc,
     );
 

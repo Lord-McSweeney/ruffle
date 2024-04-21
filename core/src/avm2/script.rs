@@ -213,6 +213,10 @@ impl<'gc> TranslationUnit<'gc> {
             .write(activation.context.gc_context)
             .load_traits(self, class_index, activation)?;
 
+        class
+            .write(activation.context.gc_context)
+            .init_vtable(activation)?;
+
         Ok(class)
     }
 

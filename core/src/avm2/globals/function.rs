@@ -231,6 +231,7 @@ pub fn create_class<'gc>(
         Some(object_classdef),
         Method::from_builtin(instance_init, "<Function instance initializer>", gc_context),
         Method::from_builtin(class_init, "<Function class initializer>", gc_context),
+        activation.domain(),
         gc_context,
     );
 

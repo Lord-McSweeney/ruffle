@@ -258,6 +258,7 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell<'gc, Cl
         None,
         Method::from_builtin(instance_init, "<Object instance initializer>", gc_context),
         Method::from_builtin(class_init, "<Object class initializer>", gc_context),
+        activation.domain(),
         gc_context,
     );
     let mut write = object_class.write(gc_context);

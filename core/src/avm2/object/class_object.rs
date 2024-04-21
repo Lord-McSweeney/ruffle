@@ -1,7 +1,7 @@
 //! Class object impl
 
 use crate::avm2::activation::Activation;
-use crate::avm2::class::{Allocator, AllocatorFn, Class, ClassHashWrapper};
+use crate::avm2::class::{Allocator, AllocatorFn, Class};
 use crate::avm2::error::{argument_error, make_error_1127, reference_error, type_error};
 use crate::avm2::function::Executable;
 use crate::avm2::method::Method;
@@ -14,13 +14,11 @@ use crate::avm2::value::Value;
 use crate::avm2::vtable::{ClassBoundMethod, VTable};
 use crate::avm2::Error;
 use crate::avm2::Multiname;
-use crate::avm2::QName;
 use crate::avm2::TranslationUnit;
 use crate::string::AvmString;
 use fnv::FnvHashMap;
 use gc_arena::{Collect, GcCell, GcWeakCell, Mutation};
 use std::cell::{BorrowError, Ref, RefMut};
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
@@ -250,13 +248,12 @@ impl<'gc> ClassObject<'gc> {
 
         class.read().validate_class(self.superclass_object())?;
 
-        self.instance_vtable().init_vtable(
-            self,
-            class.read().instance_traits(),
-            self.instance_scope(),
-            self.superclass_object().map(|cls| cls.instance_vtable()),
+        self.instance_vtable().from_partial(
             activation,
-        )?;
+            class.read().instance_vtable(),
+            self,
+            self.instance_scope(),
+        );
         Ok(())
     }
 
@@ -293,7 +290,7 @@ impl<'gc> ClassObject<'gc> {
             activation,
         )?;
 
-        self.link_interfaces(activation)?;
+        self.link_interfaces(activation.context.gc_context);
         self.install_class_vtable_and_slots(activation.context.gc_context);
         self.run_class_initializer(activation)?;
 
@@ -322,75 +319,9 @@ impl<'gc> ClassObject<'gc> {
         Ok(())
     }
 
-    /// Link this class to it's interfaces.
-    ///
-    /// This should be done after all instance traits has been resolved, as
-    /// instance traits will be resolved to their corresponding methods at this
-    /// time.
-    pub fn link_interfaces(self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
-        let mut write = self.0.write(activation.context.gc_context);
-        let class = write.class;
-        let scope = write.class_scope;
-
-        let interface_names = class.read().direct_interfaces().to_vec();
-        let mut interfaces = Vec::with_capacity(interface_names.len());
-
-        let mut dedup = HashSet::new();
-        let mut queue = vec![class];
-        while let Some(cls) = queue.pop() {
-            for interface_name in cls.read().direct_interfaces() {
-                let interface = scope
-                    .domain()
-                    .get_class(&mut activation.context, interface_name)
-                    .ok_or_else(|| {
-                        Error::from(format!("Could not resolve interface {interface_name:?}"))
-                    })?;
-
-                if !interface.read().is_interface() {
-                    return Err(format!(
-                        "Class {:?} is not an interface and cannot be implemented by classes",
-                        interface.read().name().local_name()
-                    )
-                    .into());
-                }
-
-                if dedup.insert(ClassHashWrapper(interface)) {
-                    queue.push(interface);
-                    interfaces.push(interface);
-                }
-            }
-
-            if let Some(super_class) = cls.read().super_class() {
-                queue.push(super_class);
-            }
-        }
-        write.interfaces = interfaces;
-        drop(write);
-
-        let read = self.0.read();
-
-        // FIXME - we should only be copying properties for newly-implemented
-        // interfaces (i.e. those that were not already implemented by the superclass)
-        // Otherwise, our behavior diverges from Flash Player in certain cases.
-        // See the ignored test 'tests/tests/swfs/avm2/weird_superinterface_properties/'
-        for interface in &read.interfaces {
-            let iface_read = interface.read();
-            for interface_trait in iface_read.instance_traits() {
-                if !interface_trait.name().namespace().is_public() {
-                    let public_name = QName::new(
-                        activation.context.avm2.public_namespace_vm_internal,
-                        interface_trait.name().local_name(),
-                    );
-                    self.instance_vtable().copy_property_for_interface(
-                        activation.context.gc_context,
-                        public_name,
-                        interface_trait.name(),
-                    );
-                }
-            }
-        }
-
-        Ok(())
+    /// Link this class to its interfaces.
+    pub fn link_interfaces(self, mc: &Mutation<'gc>) {
+        self.0.write(mc).interfaces = self.inner_class_definition().read().resolved_interfaces().to_vec();
     }
 
     /// Manually set the type of this `Class`.

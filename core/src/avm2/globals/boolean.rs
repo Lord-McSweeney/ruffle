@@ -138,6 +138,7 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell<'gc, Cl
         Some(activation.avm2().classes().object.inner_class_definition()),
         Method::from_builtin(instance_init, "<Boolean instance initializer>", mc),
         Method::from_builtin(class_init, "<Boolean class initializer>", mc),
+        activation.domain(),
         mc,
     );
 

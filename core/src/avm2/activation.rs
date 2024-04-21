@@ -250,6 +250,7 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                     abc_method,
                     body,
                 )?;
+                activation_class.write(dummy_activation.context.gc_context).init_vtable(&mut dummy_activation);
 
                 ClassObject::from_class(&mut dummy_activation, activation_class, None)
             })?
@@ -448,6 +449,8 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                     abc_method,
                     body,
                 )?;
+                activation_class.write(dummy_activation.context.gc_context).init_vtable(&mut dummy_activation);
+
                 ClassObject::from_class(&mut dummy_activation, activation_class, None)
             })?;
 

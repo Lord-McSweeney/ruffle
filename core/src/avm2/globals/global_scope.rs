@@ -42,6 +42,7 @@ pub fn create_class<'gc>(
         Some(object_class),
         Method::from_builtin(instance_init, "<global instance initializer>", mc),
         Method::from_builtin(class_init, "<global class initializer>", mc),
+        activation.domain(),
         mc,
     )
 }

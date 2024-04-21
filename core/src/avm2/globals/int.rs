@@ -230,6 +230,7 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell<'gc, Cl
             mc,
         ),
         Method::from_builtin(class_init, "<int class initializer>", mc),
+        activation.domain(),
         mc,
     );
 
