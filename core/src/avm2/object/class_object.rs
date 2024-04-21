@@ -246,9 +246,8 @@ impl<'gc> ClassObject<'gc> {
             "Cannot finish initialization of core class without it being linked to a type!",
         )?;
 
-        self.instance_vtable().from_partial(
+        self.instance_vtable().fill_bound_methods(
             activation,
-            class.read().instance_vtable(),
             self,
             self.instance_scope(),
         );
@@ -494,7 +493,12 @@ impl<'gc> ClassObject<'gc> {
                 class,
                 scope,
                 method,
+                ..
             } = self.instance_vtable().get_full_method(disp_id).unwrap();
+
+            let class = class.expect("Initialized ClassBoundMethod should have initialized Class");
+            let scope = scope.expect("Initialized ClassBoundMethod should have initialized Scope");
+
             let callee =
                 FunctionObject::from_method(activation, method, scope, Some(receiver), Some(class));
 
@@ -548,7 +552,12 @@ impl<'gc> ClassObject<'gc> {
                     class,
                     scope,
                     method,
+                    ..
                 } = self.instance_vtable().get_full_method(disp_id).unwrap();
+
+                let class = class.expect("Initialized ClassBoundMethod should have initialized Class");
+                let scope = scope.expect("Initialized ClassBoundMethod should have initialized Scope");
+
                 let callee = FunctionObject::from_method(
                     activation,
                     method,
@@ -630,7 +639,12 @@ impl<'gc> ClassObject<'gc> {
                     class,
                     scope,
                     method,
+                    ..
                 } = self.instance_vtable().get_full_method(disp_id).unwrap();
+
+                let class = class.expect("Initialized ClassBoundMethod should have initialized Class");
+                let scope = scope.expect("Initialized ClassBoundMethod should have initialized Scope");
+
                 let callee =
                     FunctionObject::from_method(activation, method, scope, Some(receiver), Some(class));
 

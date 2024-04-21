@@ -7,7 +7,7 @@ use crate::avm2::object::{ClassObject, Object};
 use crate::avm2::script::TranslationUnit;
 use crate::avm2::traits::{Trait, TraitKind};
 use crate::avm2::value::Value;
-use crate::avm2::vtable::PartialVTable;
+use crate::avm2::vtable::VTable;
 use crate::avm2::{Domain, Error, Multiname, Namespace, QName};
 use crate::context::UpdateContext;
 use bitflags::bitflags;
@@ -132,7 +132,7 @@ pub struct Class<'gc> {
     /// properties that would match.
     instance_traits: Vec<Trait<'gc>>,
 
-    instance_vtable: PartialVTable<'gc>,
+    instance_vtable: VTable<'gc>,
 
     /// The class initializer for this class.
     ///
@@ -234,7 +234,7 @@ impl<'gc> Class<'gc> {
                 instance_init,
                 native_instance_init,
                 instance_traits: Vec::new(),
-                instance_vtable: PartialVTable::empty(mc),
+                instance_vtable: VTable::empty(mc),
                 class_init,
                 class_initializer_called: false,
                 call_handler: None,
@@ -457,7 +457,7 @@ impl<'gc> Class<'gc> {
                 instance_init,
                 native_instance_init,
                 instance_traits: Vec::new(),
-                instance_vtable: PartialVTable::empty(activation.context.gc_context),
+                instance_vtable: VTable::empty(activation.context.gc_context),
                 class_init,
                 class_initializer_called: false,
                 call_handler: native_call_handler,
@@ -522,8 +522,9 @@ impl<'gc> Class<'gc> {
 
         self.validate_class()?;
 
-        self.instance_vtable.init_vtable(
+        self.instance_vtable.init_vtable_from_class(
             context,
+            self,
             self.protected_namespace(),
             &self.instance_traits,
             self.super_class.map(|s| s.read().instance_vtable),
@@ -715,7 +716,7 @@ impl<'gc> Class<'gc> {
                     activation.context.gc_context,
                 ),
                 instance_traits: traits,
-                instance_vtable: PartialVTable::empty(activation.context.gc_context),
+                instance_vtable: VTable::empty(activation.context.gc_context),
                 class_init: Method::from_builtin(
                     |_, _, _| Ok(Value::Undefined),
                     "<Activation object class constructor>",
@@ -949,7 +950,7 @@ impl<'gc> Class<'gc> {
         &self.instance_traits[..]
     }
 
-    pub fn instance_vtable(&self) -> PartialVTable<'gc> {
+    pub fn instance_vtable(&self) -> VTable<'gc> {
         self.instance_vtable
     }
 

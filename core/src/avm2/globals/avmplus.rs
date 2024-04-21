@@ -9,6 +9,8 @@ use crate::avm2::{ClassObject, Namespace};
 use crate::avm2::{Activation, Error, Object, Value};
 use crate::avm2_stub_method;
 
+use gc_arena::GcCell;
+
 // Implements `avmplus.describeTypeJSON`
 pub fn describe_type_json<'gc>(
     activation: &mut Activation<'_, 'gc>,
@@ -284,16 +286,15 @@ fn describe_internal_body<'gc>(
                     .method
                     .return_type()
                     .to_qualified_name_or_star(activation.context.gc_context);
-                let declared_by = method.class;
+                let declared_by = method.class_definition;
 
                 if flags.contains(DescribeTypeFlags::HIDE_OBJECT)
-                    && declared_by == activation.avm2().classes().object
+                    && GcCell::ptr_eq(declared_by, activation.avm2().classes().object.inner_class_definition())
                 {
                     continue;
                 }
 
                 let declared_by_name = declared_by
-                    .inner_class_definition()
                     .read()
                     .name()
                     .to_qualified_name(activation.context.gc_context);
@@ -359,14 +360,14 @@ fn describe_internal_body<'gc>(
                     let getter = vtable
                         .get_full_method(*get)
                         .unwrap_or_else(|| panic!("Missing 'get' method for id {get:?}"));
-                    (getter.method.return_type(), getter.class)
+                    (getter.method.return_type(), getter.class_definition)
                 } else if let Some(set) = set {
                     let setter = vtable
                         .get_full_method(*set)
                         .unwrap_or_else(|| panic!("Missing 'set' method for id {set:?}"));
                     (
                         setter.method.signature()[0].param_type_name.clone(),
-                        setter.class,
+                        setter.class_definition,
                     )
                 } else {
                     unreachable!();
@@ -381,7 +382,6 @@ fn describe_internal_body<'gc>(
                 let accessor_type =
                     method_type.to_qualified_name_or_star(activation.context.gc_context);
                 let declared_by = defining_class
-                    .inner_class_definition()
                     .read()
                     .name()
                     .to_qualified_name(activation.context.gc_context);

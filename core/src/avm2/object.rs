@@ -507,8 +507,11 @@ pub trait TObject<'gc>: 'gc + Collect + Debug + Into<Object<'gc>> + Clone + Copy
                     class,
                     scope,
                     method,
+                    ..
                 }) = vtable.get_full_method(disp_id)
                 {
+                    let class = class.expect("Initialized ClassBoundMethod should have initialized Class");
+
                     if !method.needs_arguments_object() {
                         Executable::from_method(method, scope, None, Some(class)).exec(
                             Value::from(self.into()),
