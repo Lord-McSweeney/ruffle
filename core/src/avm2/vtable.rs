@@ -660,9 +660,16 @@ pub struct PartialVTableData<'gc> {
     slot_classes: Vec<PropertyClass<'gc>>,
 
     /// method_table is indexed by `disp_id`
-    method_table: Vec<Method<'gc>>,
+    method_table: Vec<PartialClassBoundMethod<'gc>>,
 
     default_slot_traits: Vec<Option<Gc<'gc, TraitKind<'gc>>>>,
+}
+
+#[derive(Clone, Collect, Copy)]
+#[collect(no_drop)]
+pub struct PartialClassBoundMethod<'gc> {
+    pub class: ClassObject<'gc>,
+    pub method: Method<'gc>,
 }
 
 impl<'gc> PartialVTable<'gc> {
@@ -743,10 +750,10 @@ impl<'gc> PartialVTable<'gc> {
             .read()
             .method_table
             .get(disp_id as usize)
-            .cloned()
+            .copied()
     }
 
-    pub fn get_full_method(self, disp_id: u32) -> Option<Method<'gc>> {
+    pub fn get_full_method(self, disp_id: u32) -> Option<PartialClassBoundMethod<'gc>> {
         self.0.read().method_table.get(disp_id as usize).copied()
     }
 
