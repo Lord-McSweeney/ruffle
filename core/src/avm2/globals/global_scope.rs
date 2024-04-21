@@ -37,12 +37,18 @@ pub fn create_class<'gc>(
     object_class: GcCell<'gc, Class<'gc>>,
 ) -> GcCell<'gc, Class<'gc>> {
     let mc = activation.context.gc_context;
-    Class::new(
+    let class = Class::new(
         QName::new(activation.avm2().public_namespace_base_version, "global"),
         Some(object_class),
         Method::from_builtin(instance_init, "<global instance initializer>", mc),
         Method::from_builtin(class_init, "<global class initializer>", mc),
         activation.domain(),
         mc,
-    )
+    );
+
+    let mut write = class.write(mc);
+    write.mark_traits_loaded();
+    write.init_vtable(&mut activation.context).expect("System class cannot fail verification");
+
+    class
 }

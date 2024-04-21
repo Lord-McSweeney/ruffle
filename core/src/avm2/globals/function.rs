@@ -273,5 +273,8 @@ pub fn create_class<'gc>(
         gc_context,
     ));
 
+    write.mark_traits_loaded();
+    write.init_vtable(&mut activation.context).expect("System class cannot fail verification");
+
     function_class
 }

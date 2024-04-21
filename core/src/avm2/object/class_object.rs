@@ -246,8 +246,6 @@ impl<'gc> ClassObject<'gc> {
             "Cannot finish initialization of core class without it being linked to a type!",
         )?;
 
-        class.read().validate_class(self.superclass_object())?;
-
         self.instance_vtable().from_partial(
             activation,
             class.read().instance_vtable(),
@@ -382,14 +380,14 @@ impl<'gc> ClassObject<'gc> {
     ///
     /// To test if a class *instance* is of a given type, see is_of_type.
     pub fn has_class_in_chain(self, test_class: GcCell<'gc, Class<'gc>>) -> bool {
-        let mut my_class = Some(self);
+        let mut my_class = Some(self.inner_class_definition());
 
         while let Some(class) = my_class {
-            if GcCell::ptr_eq(class.inner_class_definition(), test_class) {
+            if GcCell::ptr_eq(class, test_class) {
                 return true;
             }
 
-            my_class = class.superclass_object()
+            my_class = class.read().super_class()
         }
 
         // A `ClassObject` stores all of the interfaces it implements,

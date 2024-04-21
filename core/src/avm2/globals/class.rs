@@ -79,5 +79,8 @@ pub fn create_class<'gc>(
         PUBLIC_INSTANCE_PROPERTIES,
     );
 
+    write.mark_traits_loaded();
+    write.init_vtable(&mut activation.context).expect("System class cannot fail verification");
+
     class_class
 }

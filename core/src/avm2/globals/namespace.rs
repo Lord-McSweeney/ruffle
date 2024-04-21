@@ -176,5 +176,8 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell<'gc, Cl
         PUBLIC_INSTANCE_AND_PROTO_METHODS,
     );
 
+    write.mark_traits_loaded();
+    write.init_vtable(&mut activation.context).expect("System class cannot fail verification");
+
     class
 }

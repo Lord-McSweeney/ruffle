@@ -926,6 +926,10 @@ pub fn create_generic_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell
     let mut write = class.write(mc);
     write.set_attributes(ClassAttributes::GENERIC | ClassAttributes::FINAL);
     write.set_instance_allocator(generic_vector_allocator);
+
+    write.mark_traits_loaded();
+    write.init_vtable(&mut activation.context).expect("System class cannot fail verification");
+
     class
 }
 
@@ -1014,6 +1018,9 @@ pub fn create_builtin_class<'gc>(
         activation.avm2().as3_namespace,
         AS3_INSTANCE_METHODS,
     );
+
+    write.mark_traits_loaded();
+    write.init_vtable(&mut activation.context).expect("System class cannot fail verification");
 
     class
 }

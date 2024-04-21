@@ -215,7 +215,7 @@ impl<'gc> TranslationUnit<'gc> {
 
         class
             .write(activation.context.gc_context)
-            .init_vtable(activation)?;
+            .init_vtable(&mut activation.context)?;
 
         Ok(class)
     }

@@ -11,6 +11,7 @@ use crate::avm2::Error;
 use crate::avm2::Multiname;
 use crate::avm2::Namespace;
 use crate::avm2::QName;
+use crate::context::UpdateContext;
 use crate::string::AvmString;
 use gc_arena::{Collect, Gc, GcCell, Mutation};
 use std::cell::Ref;
@@ -275,7 +276,6 @@ impl<'gc> VTable<'gc> {
         let mut write = self.0.write(activation.context.gc_context);
         let write = write.deref_mut();
 
-        write.defining_class = Some(defining_class);
         write.scope = Some(scope);
 
         write.protected_namespace = defining_class
@@ -434,7 +434,7 @@ impl<'gc> VTable<'gc> {
                 | TraitKind::Class { slot_id, .. } => {
                     let slot_id = *slot_id;
 
-                    let value = trait_to_default_value(scope, trait_data, activation);
+                    let value = trait_to_default_value(scope, trait_data.kind(), activation);
                     let value = Some(value);
 
                     let new_slot_id = if slot_id == 0 {
@@ -531,18 +531,18 @@ impl<'gc> VTable<'gc> {
         write.slot_classes = partial.0.read().slot_classes.clone();
 
         let mut new_default_slots = Vec::new();
-        for trait_data in partial.0.read().default_slot_traits {
+        for trait_data in &partial.0.read().default_slot_traits {
             new_default_slots.push(trait_data.map(|t| trait_to_default_value(scope, &t, activation)));
         }
 
         write.default_slots = new_default_slots;
 
         let mut new_method_table = Vec::new();
-        for method in partial.0.read().method_table {
+        for method in &partial.0.read().method_table {
             new_method_table.push(ClassBoundMethod {
                 class: defining_class,
                 scope,
-                method,
+                method: *method,
             });
         }
 
@@ -772,11 +772,11 @@ impl<'gc> PartialVTable<'gc> {
     #[allow(clippy::if_same_then_else)]
     pub fn init_vtable(
         self,
-        activation: &mut Activation<'_, 'gc>,
+        context: &mut UpdateContext<'_, 'gc>,
         protected_namespace: Option<Namespace<'gc>>,
         traits: &[Trait<'gc>],
         superclass_vtable: Option<Self>,
-    ) -> Result<(), Error<'gc>> {
+    ) {
         // Let's talk about slot_ids and disp_ids.
         // Specification is one thing, but reality is another.
 
@@ -828,7 +828,7 @@ impl<'gc> PartialVTable<'gc> {
         // so long-term it's still something we should verify.
         // (and it's far from the only verification check we lack anyway)
 
-        let mut write = self.0.write(activation.context.gc_context);
+        let mut write = self.0.write(context.gc_context);
         let write = write.deref_mut();
 
         write.protected_namespace = protected_namespace;
@@ -969,7 +969,7 @@ impl<'gc> PartialVTable<'gc> {
                 | TraitKind::Class { slot_id, .. } => {
                     let slot_id = *slot_id;
 
-                    let value = Some(Gc::new(activation.context.gc_context, trait_data.kind().clone()));
+                    let value = Some(Gc::new(context.gc_context, trait_data.kind().clone()));
 
                     let new_slot_id = if slot_id == 0 {
                         default_slot_traits.push(value);
@@ -998,7 +998,7 @@ impl<'gc> PartialVTable<'gc> {
                         } => (
                             Property::new_slot(new_slot_id),
                             PropertyClass::name(
-                                activation.context.gc_context,
+                                context.gc_context,
                                 type_name.clone(),
                                 *unit,
                             ),
@@ -1006,8 +1006,8 @@ impl<'gc> PartialVTable<'gc> {
                         TraitKind::Function { .. } => (
                             Property::new_slot(new_slot_id),
                             PropertyClass::Class(
-                                activation
-                                    .avm2()
+                                context
+                                    .avm2
                                     .classes()
                                     .function
                                     .inner_class_definition(),
@@ -1018,7 +1018,7 @@ impl<'gc> PartialVTable<'gc> {
                         } => (
                             Property::new_const_slot(new_slot_id),
                             PropertyClass::name(
-                                activation.context.gc_context,
+                                context.gc_context,
                                 type_name.clone(),
                                 *unit,
                             ),
@@ -1026,7 +1026,7 @@ impl<'gc> PartialVTable<'gc> {
                         TraitKind::Class { .. } => (
                             Property::new_const_slot(new_slot_id),
                             PropertyClass::Class(
-                                activation.avm2().classes().class.inner_class_definition(),
+                                context.avm2.classes().class.inner_class_definition(),
                             ),
                         ),
                         _ => unreachable!(),
@@ -1042,8 +1042,6 @@ impl<'gc> PartialVTable<'gc> {
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Install an existing trait under a new name, provided by interface.

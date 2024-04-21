@@ -305,6 +305,9 @@ impl<'gc> Class<'gc> {
         new_class.write(mc).param = Some(Some(param));
         new_class.write(mc).call_handler = object_vector_cls.read().call_handler();
 
+        new_class.write(mc).mark_traits_loaded();
+        new_class.write(mc).init_vtable(context).expect("Parametrized Vector should fail neither verification nor interface linking");
+
         drop(read);
         this.write(mc).applications.insert(key, new_class);
         new_class
@@ -512,19 +515,21 @@ impl<'gc> Class<'gc> {
         Ok(())
     }
 
-    pub fn init_vtable(&mut self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
+    pub fn init_vtable(&mut self, context: &mut UpdateContext<'_, 'gc>) -> Result<(), Error<'gc>> {
         if !self.traits_loaded {
             panic!("Class traits should have been loaded before initializing vtable");
         }
 
+        self.validate_class()?;
+
         self.instance_vtable.init_vtable(
-            activation,
+            context,
             self.protected_namespace(),
             &self.instance_traits,
             self.super_class.map(|s| s.read().instance_vtable),
         );
 
-        self.link_interfaces(activation)?;
+        self.link_interfaces(context)?;
 
         Ok(())
     }
@@ -534,16 +539,22 @@ impl<'gc> Class<'gc> {
     /// This should be done after all instance traits has been resolved, as
     /// instance traits will be resolved to their corresponding methods at this
     /// time.
-    pub fn link_interfaces(&mut self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
+    pub fn link_interfaces(&mut self, context: &mut UpdateContext<'_, 'gc>) -> Result<(), Error<'gc>> {
         let mut interfaces = Vec::with_capacity(self.direct_interfaces.len());
 
+        // FIXME this can probably be done better
+        let this = GcCell::new(context.gc_context, self.clone());
+
         let mut dedup = HashSet::new();
-        let mut queue = vec![&*self];
+        let mut queue = vec![this];
         while let Some(cls) = queue.pop() {
+            let cls = cls.read();
+
             for interface_name in cls.direct_interfaces() {
-                let interface = self
+                let interface = this
+                    .read()
                     .domain
-                    .get_class(&mut activation.context, interface_name)
+                    .get_class(context, interface_name)
                     .ok_or_else(|| {
                         Error::from(format!("Could not resolve interface {interface_name:?}"))
                     })?;
@@ -557,13 +568,13 @@ impl<'gc> Class<'gc> {
                 }
 
                 if dedup.insert(ClassHashWrapper(interface)) {
-                    queue.push(&interface.read());
+                    queue.push(interface);
                     interfaces.push(interface);
                 }
             }
 
             if let Some(super_class) = cls.super_class() {
-                queue.push(&super_class.read());
+                queue.push(super_class);
             }
         }
 
@@ -578,11 +589,11 @@ impl<'gc> Class<'gc> {
             for interface_trait in iface_read.instance_traits() {
                 if !interface_trait.name().namespace().is_public() {
                     let public_name = QName::new(
-                        activation.context.avm2.public_namespace_vm_internal,
+                        context.avm2.public_namespace_vm_internal,
                         interface_trait.name().local_name(),
                     );
                     self.instance_vtable.copy_property_for_interface(
-                        activation.context.gc_context,
+                        context.gc_context,
                         public_name,
                         interface_trait.name(),
                     );
@@ -598,13 +609,13 @@ impl<'gc> Class<'gc> {
     /// This should be called at class creation time once the superclass name
     /// has been resolved. It will return Ok for a valid class, and a
     /// VerifyError for any invalid class.
-    pub fn validate_class(&self, superclass: Option<ClassObject<'gc>>) -> Result<(), Error<'gc>> {
+    pub fn validate_class(&self) -> Result<(), Error<'gc>> {
         // System classes do not throw verify errors.
         if self.is_system {
             return Ok(());
         }
 
-        if let Some(superclass) = superclass {
+        if let Some(superclass) = self.super_class {
             for instance_trait in self.instance_traits.iter() {
                 let is_protected = self.protected_namespace().map_or(false, |prot| {
                     prot.exact_version_match(instance_trait.name().namespace())
@@ -614,8 +625,7 @@ impl<'gc> Class<'gc> {
                 let mut did_override = false;
 
                 while let Some(superclass) = current_superclass {
-                    let superclass_def = superclass.inner_class_definition();
-                    let read = superclass_def.read();
+                    let read = superclass.read();
 
                     for supertrait in read.instance_traits.iter() {
                         let super_name = supertrait.name();
@@ -653,7 +663,7 @@ impl<'gc> Class<'gc> {
                         break;
                     }
 
-                    current_superclass = superclass.superclass_object();
+                    current_superclass = superclass.read().super_class;
                 }
 
                 if instance_trait.is_override() && !did_override {
