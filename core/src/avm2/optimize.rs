@@ -5,7 +5,7 @@ use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{ClassObject, TObject};
 use crate::avm2::op::Op;
 use crate::avm2::property::Property;
-use crate::avm2::verify::JumpSources;
+use crate::avm2::verify::JumpSource;
 
 use gc_arena::Gc;
 use std::collections::HashMap;
@@ -87,10 +87,6 @@ impl<'gc> Locals<'gc> {
     fn at(&self, index: usize) -> OptValue<'gc> {
         self.0[index]
     }
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -153,7 +149,7 @@ pub fn optimize<'gc>(
     code: &mut Vec<Op<'gc>>,
     resolved_parameters: &[ResolvedParamConfig<'gc>],
     return_type: Option<Class<'gc>>,
-    jump_targets: HashMap<i32, JumpSources>,
+    jump_targets: HashMap<i32, Vec<JumpSource>>,
 ) {
     // These make the code less readable
     #![allow(clippy::collapsible_if)]
@@ -280,51 +276,13 @@ pub fn optimize<'gc>(
 
     for (i, op) in code.iter_mut().enumerate() {
         if let Some(jump_sources) = jump_targets.get(&(i as i32)) {
-            if let JumpSources::Known(sources) = jump_sources {
-                // Avoid handling multiple sources for now
-                if sources.len() == 1 {
-                    // We can merge the locals easily, now
-                    let source_i = sources[0];
-
-                    if let Some(source_local_types) = state_map.get(&source_i) {
-                        let mut merged_types = initial_local_types.clone();
-                        assert_eq!(source_local_types.len(), local_types.len());
-
-                        if last_op_was_block_terminating {
-                            // If the last op was a block-terminating op, the
-                            // only possible way this is reachable is from
-                            // the jump. Just set the types to the types
-                            // at the jump.
-                            merged_types = source_local_types.clone();
-                        } else {
-                            for (i, target_local) in local_types.0.iter().enumerate() {
-                                let source_local = source_local_types.at(i);
-                                // TODO: Check superclasses, too
-                                if let (Some(source_local_class), Some(target_local_class)) =
-                                    (source_local.class, target_local.class)
-                                {
-                                    if source_local_class.inner_class_definition()
-                                        == target_local_class.inner_class_definition()
-                                    {
-                                        merged_types.set(i, OptValue::of_type(source_local_class));
-                                    }
-                                }
-                            }
-                        }
-
-                        local_types = merged_types;
-                    } else {
-                        local_types = initial_local_types.clone();
-                    }
-                } else {
-                    local_types = initial_local_types.clone();
-                }
-            } else {
-                local_types = initial_local_types.clone();
-            }
-
-            stack.clear();
-            scope_stack.clear();
+            (stack, scope_stack, local_types) = merge_states(
+                &jump_sources,
+                &local_types,
+                &initial_local_types,
+                &state_map,
+                last_op_was_block_terminating,
+            );
         }
 
         last_op_was_block_terminating = false;
@@ -1334,7 +1292,16 @@ pub fn optimize<'gc>(
                 stack.pop();
                 stack.push_class_object(types.number);
             }
-            Op::ReturnVoid | Op::Throw | Op::LookupSwitch(_) => {
+            Op::ReturnVoid | Op::Throw => {
+                // End of block
+                stack.clear();
+                scope_stack.clear();
+                local_types = initial_local_types.clone();
+                last_op_was_block_terminating = true;
+            }
+            Op::LookupSwitch(_) => {
+                state_map.insert(i as i32, local_types.clone());
+
                 // End of block
                 stack.clear();
                 scope_stack.clear();
@@ -1376,4 +1343,69 @@ pub fn optimize<'gc>(
             ),
         }
     }
+}
+
+fn merge_states<'gc>(
+    jump_sources: &[JumpSource],
+    locals: &Locals<'gc>,
+    initial_local_types: &Locals<'gc>,
+    state_map: &HashMap<i32, Locals<'gc>>,
+    last_op_was_block_terminating: bool,
+) -> (Stack<'gc>, Stack<'gc>, Locals<'gc>) {
+    let mut merged_locals_list = Vec::new();
+    if !last_op_was_block_terminating {
+        merged_locals_list.push(locals);
+    }
+    for jump_source in jump_sources {
+        merged_locals_list.push(match jump_source {
+            JumpSource::Jump(source) => {
+                if let Some(state_at_source) = state_map.get(source) {
+                    state_at_source
+                } else {
+                    initial_local_types
+                }
+            }
+            JumpSource::ExceptionTarget => initial_local_types,
+        });
+    }
+
+    // This assert! tripping indicates a verifier bug
+    assert!(!merged_locals_list.is_empty());
+
+    let first_local_types = &mut merged_locals_list[0].0.clone();
+    for local_types in merged_locals_list.iter().skip(1) {
+        merge_type_vecs(first_local_types, &local_types.0);
+    }
+
+    (Stack::new(), Stack::new(), Locals(std::mem::take(first_local_types)))
+}
+
+fn merge_type_vecs<'gc>(first: &mut [OptValue<'gc>], second: &[OptValue<'gc>]) {
+    assert_eq!(first.len(), second.len());
+
+    for (first_val, second_val) in first.iter_mut().zip(second.iter()) {
+        *first_val = merge_types(*first_val, *second_val);
+    }
+}
+
+fn merge_types<'gc>(first: OptValue<'gc>, second: OptValue<'gc>) -> OptValue<'gc> {
+    let mut result = OptValue::any();
+    if first.guaranteed_null && second.guaranteed_null {
+        result.guaranteed_null = true;
+    }
+
+    // TODO: Also check for superclasses
+    if first.class == second.class {
+        result.class = first.class;
+    }
+
+    if first.contains_valid_integer && second.contains_valid_integer {
+        result.contains_valid_integer = true;
+    }
+
+    if first.contains_valid_unsigned && second.contains_valid_unsigned {
+        result.contains_valid_unsigned = true;
+    }
+    
+    return result;
 }
