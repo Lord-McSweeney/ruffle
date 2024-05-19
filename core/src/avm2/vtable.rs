@@ -1,4 +1,5 @@
 use crate::avm2::activation::Activation;
+use crate::avm2::class::Class;
 use crate::avm2::metadata::Metadata;
 use crate::avm2::method::Method;
 use crate::avm2::object::{ClassObject, FunctionObject, Object};
@@ -11,6 +12,7 @@ use crate::avm2::Error;
 use crate::avm2::Multiname;
 use crate::avm2::Namespace;
 use crate::avm2::QName;
+use crate::context::UpdateContext;
 use crate::string::AvmString;
 use gc_arena::{Collect, GcCell, Mutation};
 use std::cell::Ref;
@@ -104,10 +106,6 @@ impl<'gc> VTable<'gc> {
         ));
 
         vt
-    }
-
-    pub fn duplicate(self, mc: &Mutation<'gc>) -> Self {
-        VTable(GcCell::new(mc, self.0.read().clone()))
     }
 
     pub fn resolved_traits(&self) -> Ref<'_, PropertyMap<'gc, Property>> {
@@ -516,6 +514,24 @@ impl<'gc> VTable<'gc> {
         Ok(())
     }
 
+    pub fn as_partial_vtable(self, mc: &Mutation<'gc>) -> PartialVTable<'gc> {
+        PartialVTable(GcCell::new(
+            mc,
+            PartialVTableData {
+                protected_namespace: self.0.read().protected_namespace,
+                resolved_traits: self.0.read().resolved_traits.clone(),
+                slot_classes: self.slot_classes().clone(),
+                method_table: self
+                    .0
+                    .read()
+                    .method_table
+                    .iter()
+                    .map(|m| m.method)
+                    .collect::<Vec<_>>(),
+            },
+        ))
+    }
+
     /// Retrieve a bound instance method suitable for use as a value.
     ///
     /// This returns the bound method object itself, as well as it's dispatch
@@ -621,5 +637,243 @@ fn trait_to_default_value<'gc>(
         }
         TraitKind::Class { .. } => Value::Undefined,
         _ => unreachable!(),
+    }
+}
+
+#[derive(Collect, Clone, Copy)]
+#[collect(no_drop)]
+pub struct PartialVTable<'gc>(GcCell<'gc, PartialVTableData<'gc>>);
+
+#[derive(Collect, Clone)]
+#[collect(no_drop)]
+pub struct PartialVTableData<'gc> {
+    protected_namespace: Option<Namespace<'gc>>,
+
+    resolved_traits: PropertyMap<'gc, Property>,
+
+    /// Stores the `PropertyClass` for each slot,
+    /// indexed by `slot_id`
+    slot_classes: Vec<PropertyClass<'gc>>,
+
+    /// method_table is indexed by `disp_id`
+    method_table: Vec<Method<'gc>>,
+}
+
+impl<'gc> PartialVTable<'gc> {
+    pub fn empty(mc: &Mutation<'gc>) -> Self {
+        PartialVTable(GcCell::new(
+            mc,
+            PartialVTableData {
+                protected_namespace: None,
+                resolved_traits: PropertyMap::new(),
+                slot_classes: vec![],
+                method_table: vec![],
+            },
+        ))
+    }
+
+    pub fn get_trait(self, name: &Multiname<'gc>) -> Option<Property> {
+        if name.is_attribute() {
+            return None;
+        }
+
+        self.0
+            .read()
+            .resolved_traits
+            .get_for_multiname(name)
+            .cloned()
+    }
+
+    pub fn has_trait(self, name: &Multiname<'gc>) -> bool {
+        self.0
+            .read()
+            .resolved_traits
+            .get_for_multiname(name)
+            .is_some()
+    }
+
+    pub fn get_method(self, disp_id: u32) -> Option<Method<'gc>> {
+        self.0.read().method_table.get(disp_id as usize).copied()
+    }
+
+    pub fn slot_classes(&self) -> Ref<Vec<PropertyClass<'gc>>> {
+        Ref::map(self.0.read(), |v| &v.slot_classes)
+    }
+
+    pub fn set_slot_class(&self, mc: &Mutation<'gc>, index: usize, value: PropertyClass<'gc>) {
+        self.0.write(mc).slot_classes[index] = value;
+    }
+
+    /// Calculate the flattened list of instance traits that this class
+    /// maintains.
+    #[allow(clippy::if_same_then_else)]
+    pub fn init_vtable(
+        self,
+        defining_class: Class<'gc>,
+        traits: &[Trait<'gc>],
+        superclass_vtable: Option<Self>,
+        context: &mut UpdateContext<'_, 'gc>,
+    ) {
+        let mut write = self.0.write(context.gc_context);
+        let write = write.deref_mut();
+
+        write.protected_namespace = defining_class.protected_namespace();
+
+        if let Some(superclass_vtable) = superclass_vtable {
+            write.resolved_traits = superclass_vtable.0.read().resolved_traits.clone();
+            write.slot_classes = superclass_vtable.0.read().slot_classes.clone();
+            write.method_table = superclass_vtable.0.read().method_table.clone();
+
+            if let Some(protected_namespace) = write.protected_namespace {
+                if let Some(super_protected_namespace) =
+                    superclass_vtable.0.read().protected_namespace
+                {
+                    // Copy all protected traits from superclass
+                    // but with this class's protected namespace
+                    for (local_name, ns, prop) in superclass_vtable.0.read().resolved_traits.iter()
+                    {
+                        if ns.exact_version_match(super_protected_namespace) {
+                            let new_name = QName::new(protected_namespace, local_name);
+                            write.resolved_traits.insert(new_name, *prop);
+                        }
+                    }
+                }
+            }
+        }
+
+        let (resolved_traits, method_table, slot_classes) = (
+            &mut write.resolved_traits,
+            &mut write.method_table,
+            &mut write.slot_classes,
+        );
+
+        for trait_data in traits {
+            match trait_data.kind() {
+                TraitKind::Method { method, .. } => {
+                    match resolved_traits.get(trait_data.name()) {
+                        Some(Property::Method { disp_id, .. }) => {
+                            method_table[*disp_id as usize] = *method;
+                        }
+                        // note: ideally overwriting other property types
+                        // should be a VerifyError
+                        _ => {
+                            let disp_id = method_table.len() as u32;
+                            method_table.push(*method);
+                            resolved_traits
+                                .insert(trait_data.name(), Property::new_method(disp_id));
+                        }
+                    }
+                }
+                TraitKind::Getter { method, .. } => {
+                    match resolved_traits.get_mut(trait_data.name()) {
+                        Some(Property::Virtual {
+                            get: Some(disp_id), ..
+                        }) => {
+                            method_table[*disp_id as usize] = *method;
+                        }
+                        Some(Property::Virtual { get, .. }) => {
+                            let disp_id = method_table.len() as u32;
+                            *get = Some(disp_id);
+                            method_table.push(*method);
+                        }
+                        _ => {
+                            let disp_id = method_table.len() as u32;
+                            method_table.push(*method);
+                            resolved_traits
+                                .insert(trait_data.name(), Property::new_getter(disp_id));
+                        }
+                    }
+                }
+                TraitKind::Setter { method, .. } => {
+                    match resolved_traits.get_mut(trait_data.name()) {
+                        Some(Property::Virtual {
+                            set: Some(disp_id), ..
+                        }) => {
+                            method_table[*disp_id as usize] = *method;
+                        }
+                        Some(Property::Virtual { set, .. }) => {
+                            let disp_id = method_table.len() as u32;
+                            method_table.push(*method);
+                            *set = Some(disp_id);
+                        }
+                        _ => {
+                            let disp_id = method_table.len() as u32;
+                            method_table.push(*method);
+                            resolved_traits
+                                .insert(trait_data.name(), Property::new_setter(disp_id));
+                        }
+                    }
+                }
+                TraitKind::Slot { slot_id, .. }
+                | TraitKind::Const { slot_id, .. }
+                | TraitKind::Function { slot_id, .. }
+                | TraitKind::Class { slot_id, .. } => {
+                    let slot_id = *slot_id;
+
+                    let new_slot_id = if slot_id == 0 {
+                        slot_classes.len() as u32
+                    } else if let Some(_) = slot_classes.get(slot_id as usize) {
+                        // slot_id conflict
+                        slot_classes.len() as u32
+                    } else {
+                        slot_id
+                    };
+
+                    if new_slot_id as usize >= slot_classes.len() {
+                        // We will overwrite `PropertyClass::Any` when we process the slots
+                        // with the ids that we just skipped over.
+                        slot_classes.resize(new_slot_id as usize + 1, PropertyClass::Any);
+                    }
+
+                    let (new_prop, new_class) = match trait_data.kind() {
+                        TraitKind::Slot {
+                            type_name, unit, ..
+                        } => (
+                            Property::new_slot(new_slot_id),
+                            PropertyClass::name(context.gc_context, type_name.clone(), *unit),
+                        ),
+                        TraitKind::Function { .. } => (
+                            Property::new_slot(new_slot_id),
+                            PropertyClass::Class(
+                                context.avm2.classes().function.inner_class_definition(),
+                            ),
+                        ),
+                        TraitKind::Const {
+                            type_name, unit, ..
+                        } => (
+                            Property::new_const_slot(new_slot_id),
+                            PropertyClass::name(context.gc_context, type_name.clone(), *unit),
+                        ),
+                        TraitKind::Class { .. } => (
+                            Property::new_const_slot(new_slot_id),
+                            PropertyClass::Class(
+                                context.avm2.classes().class.inner_class_definition(),
+                            ),
+                        ),
+                        _ => unreachable!(),
+                    };
+
+                    resolved_traits.insert(trait_data.name(), new_prop);
+
+                    slot_classes[new_slot_id as usize] = new_class;
+                }
+            }
+        }
+    }
+
+    /// Install an existing trait under a new name, provided by interface.
+    pub fn copy_property_for_interface(
+        self,
+        mc: &Mutation<'gc>,
+        public_name: QName<'gc>,
+        interface_name: QName<'gc>,
+    ) {
+        let mut write = self.0.write(mc);
+
+        let prop = write.resolved_traits.get(public_name).cloned();
+
+        if let Some(prop) = prop {
+            write.resolved_traits.insert(interface_name, prop);
+        }
     }
 }
