@@ -432,11 +432,10 @@ impl<'gc> VTable<'gc> {
                 }
                 TraitKind::Slot { slot_id, .. }
                 | TraitKind::Const { slot_id, .. }
-                | TraitKind::Function { slot_id, .. }
                 | TraitKind::Class { slot_id, .. } => {
                     let slot_id = *slot_id;
 
-                    let value = trait_to_default_value(scope, trait_data, activation);
+                    let value = trait_to_default_value(trait_data);
                     let value = Some(value);
 
                     let new_slot_id = if slot_id == 0 {
@@ -471,16 +470,6 @@ impl<'gc> VTable<'gc> {
                                 *unit,
                             ),
                         ),
-                        TraitKind::Function { .. } => (
-                            Property::new_slot(new_slot_id),
-                            PropertyClass::Class(
-                                activation
-                                    .avm2()
-                                    .classes()
-                                    .function
-                                    .inner_class_definition(),
-                            ),
-                        ),
                         TraitKind::Const {
                             type_name, unit, ..
                         } => (
@@ -508,6 +497,7 @@ impl<'gc> VTable<'gc> {
 
                     slot_classes[new_slot_id as usize] = new_class;
                 }
+                TraitKind::Function { .. } => panic!("TraitKind::Function shouldn't appear"),
             }
         }
 
@@ -528,6 +518,7 @@ impl<'gc> VTable<'gc> {
                     .iter()
                     .map(|m| m.method)
                     .collect::<Vec<_>>(),
+                default_slots: self.default_slots().clone(),
             },
         ))
     }
@@ -622,20 +613,11 @@ impl<'gc> VTable<'gc> {
     }
 }
 
-fn trait_to_default_value<'gc>(
-    scope: ScopeChain<'gc>,
-    trait_data: &Trait<'gc>,
-    activation: &mut Activation<'_, 'gc>,
-) -> Value<'gc> {
+fn trait_to_default_value<'gc>(trait_data: &Trait<'gc>) -> Value<'gc> {
     match trait_data.kind() {
         TraitKind::Slot { default_value, .. } => *default_value,
         TraitKind::Const { default_value, .. } => *default_value,
-        TraitKind::Function { function, .. } => {
-            FunctionObject::from_function(activation, *function, scope)
-                .unwrap()
-                .into()
-        }
-        TraitKind::Class { .. } => Value::Undefined,
+        TraitKind::Class { .. } => Value::Null,
         _ => unreachable!(),
     }
 }
@@ -657,6 +639,8 @@ pub struct PartialVTableData<'gc> {
 
     /// method_table is indexed by `disp_id`
     method_table: Vec<Method<'gc>>,
+
+    default_slots: Vec<Option<Value<'gc>>>,
 }
 
 impl<'gc> PartialVTable<'gc> {
@@ -668,6 +652,7 @@ impl<'gc> PartialVTable<'gc> {
                 resolved_traits: PropertyMap::new(),
                 slot_classes: vec![],
                 method_table: vec![],
+                default_slots: vec![],
             },
         ))
     }
@@ -723,6 +708,7 @@ impl<'gc> PartialVTable<'gc> {
             write.resolved_traits = superclass_vtable.0.read().resolved_traits.clone();
             write.slot_classes = superclass_vtable.0.read().slot_classes.clone();
             write.method_table = superclass_vtable.0.read().method_table.clone();
+            write.default_slots = superclass_vtable.0.read().default_slots.clone();
 
             if let Some(protected_namespace) = write.protected_namespace {
                 if let Some(super_protected_namespace) =
@@ -741,9 +727,10 @@ impl<'gc> PartialVTable<'gc> {
             }
         }
 
-        let (resolved_traits, method_table, slot_classes) = (
+        let (resolved_traits, method_table, default_slots, slot_classes) = (
             &mut write.resolved_traits,
             &mut write.method_table,
+            &mut write.default_slots,
             &mut write.slot_classes,
         );
 
@@ -806,16 +793,24 @@ impl<'gc> PartialVTable<'gc> {
                 }
                 TraitKind::Slot { slot_id, .. }
                 | TraitKind::Const { slot_id, .. }
-                | TraitKind::Function { slot_id, .. }
                 | TraitKind::Class { slot_id, .. } => {
                     let slot_id = *slot_id;
 
+                    let value = trait_to_default_value(trait_data);
+                    let value = Some(value);
+
                     let new_slot_id = if slot_id == 0 {
-                        slot_classes.len() as u32
-                    } else if let Some(_) = slot_classes.get(slot_id as usize) {
+                        default_slots.push(value);
+                        default_slots.len() as u32 - 1
+                    } else if let Some(Some(_)) = default_slots.get(slot_id as usize) {
                         // slot_id conflict
-                        slot_classes.len() as u32
+                        default_slots.push(value);
+                        default_slots.len() as u32 - 1
                     } else {
+                        if slot_id as usize >= default_slots.len() {
+                            default_slots.resize_with(slot_id as usize + 1, Default::default);
+                        }
+                        default_slots[slot_id as usize] = value;
                         slot_id
                     };
 
@@ -831,12 +826,6 @@ impl<'gc> PartialVTable<'gc> {
                         } => (
                             Property::new_slot(new_slot_id),
                             PropertyClass::name(context.gc_context, type_name.clone(), *unit),
-                        ),
-                        TraitKind::Function { .. } => (
-                            Property::new_slot(new_slot_id),
-                            PropertyClass::Class(
-                                context.avm2.classes().function.inner_class_definition(),
-                            ),
                         ),
                         TraitKind::Const {
                             type_name, unit, ..
@@ -857,6 +846,7 @@ impl<'gc> PartialVTable<'gc> {
 
                     slot_classes[new_slot_id as usize] = new_class;
                 }
+                TraitKind::Function { .. } => panic!("TraitKind::Function shouldn't appear"),
             }
         }
     }
