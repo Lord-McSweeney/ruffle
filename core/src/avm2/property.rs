@@ -31,7 +31,7 @@ pub enum Property {
 /// Additionally, property class resolution uses special
 /// logic, different from normal "runtime" class resolution,
 /// that allows private types to be referenced.
-#[derive(Collect, Clone, Copy)]
+#[derive(Collect, Clone, Copy, Debug)]
 #[collect(no_drop)]
 pub enum PropertyClass<'gc> {
     /// The type `*` (Multiname::is_any()). This allows

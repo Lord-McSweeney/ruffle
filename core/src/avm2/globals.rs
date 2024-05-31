@@ -471,7 +471,6 @@ pub fn load_player_globals<'gc>(
 
     let globals = ScriptObject::custom_object(mc, None, None);
     let gs = ScopeChain::new(domain).chain(mc, &[Scope::new(globals)]);
-    let script = Script::empty_script(mc, globals, domain);
 
     // Set the outer scope of this activation to the global scope.
     activation.set_outer(gs);
@@ -561,7 +560,7 @@ pub fn load_player_globals<'gc>(
 
     activation.context.avm2.toplevel_global_object = Some(globals);
 
-    script.set_global_class(mc, global_classdef);
+    let script = Script::empty_script(mc, globals, global_classdef, domain);
 
     // From this point, `globals` is safe to be modified
 
