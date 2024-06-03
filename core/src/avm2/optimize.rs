@@ -387,26 +387,31 @@ pub fn optimize<'gc>(
                 stack.push_any();
             }
             Op::CoerceB => {
+                println!("|CoerceB|?");
                 let stack_value = stack.pop_or_any();
                 if stack_value.class == Some(types.boolean) {
+                    println!("|CoerceB|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_class(types.boolean);
             }
             Op::CoerceD => {
+                println!("|CoerceD|?");
                 let stack_value = stack.pop_or_any();
                 if stack_value.class == Some(types.number)
                     || stack_value.class == Some(types.int)
                     || stack_value.class == Some(types.uint)
                 {
+                    println!("|CoerceD|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_class(types.number);
             }
             Op::CoerceI => {
+                println!("|CoerceI|?");
                 let stack_value = stack.pop_or_any();
-                // TODO: maybe the type check is safe here...?
-                if stack_value.contains_valid_integer {
+                if stack_value.contains_valid_integer || stack_value.class == Some(types.int) {
+                    println!("|CoerceI|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_class(types.int);
@@ -423,8 +428,10 @@ pub fn optimize<'gc>(
                 // will clear the stack).
             }
             Op::CoerceS => {
+                println!("|CoerceS|?");
                 let stack_value = stack.pop_or_any();
-                if stack_value.guaranteed_null {
+                if stack_value.guaranteed_null || stack_value.class == Some(types.string) {
+                    println!("|CoerceS|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_class(types.string);
@@ -434,9 +441,10 @@ pub fn optimize<'gc>(
                 stack.push_class(types.string);
             }
             Op::CoerceU => {
+                println!("|CoerceU|?");
                 let stack_value = stack.pop_or_any();
-                // TODO: maybe the type check is safe here...?
-                if stack_value.contains_valid_unsigned {
+                if stack_value.contains_valid_unsigned || stack_value.class == Some(types.uint) {
+                    println!("|CoerceU|Nop");
                     *op = Op::Nop;
                 }
                 stack.push_class(types.uint);
@@ -504,23 +512,21 @@ pub fn optimize<'gc>(
                 stack.push(new_value);
             }
             Op::DecrementI => {
-                // TODO (same for other I ops): analyze what _exactly_ the type int implies
-                // and whether we can use Number or (u)int here
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::IncrementI => {
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::DecLocalI { index } => {
-                local_types.set_any(*index as usize);
+                local_types.set(*index as usize, OptValue::of_type(types.int));
             }
             Op::DecLocal { index } => {
                 local_types.set(*index as usize, OptValue::of_type(types.number));
             }
             Op::IncLocalI { index } => {
-                local_types.set_any(*index as usize);
+                local_types.set(*index as usize, OptValue::of_type(types.int));
             }
             Op::IncLocal { index } => {
                 local_types.set(*index as usize, OptValue::of_type(types.number));
@@ -540,21 +546,21 @@ pub fn optimize<'gc>(
             Op::AddI => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::SubtractI => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::MultiplyI => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::NegateI => {
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::Add => {
                 let value2 = stack.pop_or_any();
@@ -567,6 +573,8 @@ pub fn optimize<'gc>(
                         || value2.class == Some(types.number))
                 {
                     stack.push_class(types.number);
+                } else if value1.class == Some(types.string) || value2.class == Some(types.string) {
+                    stack.push_class(types.string);
                 } else {
                     stack.push_any();
                 }
@@ -593,37 +601,37 @@ pub fn optimize<'gc>(
             }
             Op::BitNot => {
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::BitAnd => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::BitOr => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::BitXor => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::LShift => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::RShift => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::URShift => {
                 stack.pop();
                 stack.pop();
-                stack.push_any();
+                stack.push_class(types.int);
             }
             Op::PushDouble { .. } => {
                 stack.push_class(types.number);
@@ -706,6 +714,7 @@ pub fn optimize<'gc>(
                 stack.push_any();
             }
             Op::AsType { class } => {
+                println!("|AsType|?");
                 let stack_value = stack.pop_or_any();
 
                 let class_is_primitive = *class == types.int
@@ -729,11 +738,13 @@ pub fn optimize<'gc>(
                 }
                 if stack_value.guaranteed_null {
                     // null always turns into null
+                    println!("|AsType|Nop");
                     *op = Op::Nop;
                 }
                 stack.push(new_value);
             }
             Op::Coerce { class } => {
+                println!("|Coerce|?");
                 let stack_value = stack.pop_or_any();
                 stack.push_class(*class);
 
@@ -745,11 +756,13 @@ pub fn optimize<'gc>(
                         && *class != types.boolean
                         && *class != types.void
                     {
+                        println!("|Coerce|Nop");
                         *op = Op::Nop;
                     }
                 } else if let Some(stack_class) = stack_value.class {
                     // TODO: this could check for inheritance
                     if *class == stack_class {
+                        println!("|Coerce|Nop");
                         *op = Op::Nop;
                     }
                 }
@@ -807,12 +820,22 @@ pub fn optimize<'gc>(
                 let multiname = *multiname;
                 let mut stack_push_done = false;
                 stack.pop_for_multiname(multiname);
+                match op {
+                    Op::FindPropStrict { .. } => println!("|FindPropStrict|?"),
+                    Op::FindProperty { .. } => println!("|FindProperty|?"),
+                    _ => {}
+                }
 
                 if !multiname.has_lazy_component() && has_simple_scoping {
                     let outer_scope = activation.outer();
                     if !outer_scope.is_empty() {
                         if let Some(this_vtable) = this_vtable {
                             if this_vtable.has_trait(&multiname) {
+                                match op {
+                                    Op::FindPropStrict { .. } => println!("|FindPropStrict|GetScopeObject"),
+                                    Op::FindProperty { .. } => println!("|FindProperty|GetScopeObject"),
+                                    _ => {}
+                                }
                                 *op = Op::GetScopeObject { index: 0 };
 
                                 stack_push_done = true;
@@ -827,6 +850,11 @@ pub fn optimize<'gc>(
                     if !stack_push_done {
                         if let Some(info) = outer_scope.get_entry_for_multiname(&multiname) {
                             if let Some((class, index)) = info {
+                                match op {
+                                    Op::FindPropStrict { .. } => println!("|FindPropStrict|GetOuterScope"),
+                                    Op::FindProperty { .. } => println!("|FindProperty|GetOuterScope"),
+                                    _ => {}
+                                }
                                 *op = Op::GetOuterScope { index };
 
                                 stack_push_done = true;
@@ -852,6 +880,11 @@ pub fn optimize<'gc>(
                             // the results of that FindDef at runtime, rather than caching
                             // the lookup here, in the verifier. However, this discrepancy
                             // is unlikely to cause any real problems with SWFs.
+                            match op {
+                                Op::FindPropStrict { .. } => println!("|FindPropStrict|GetScriptGlobals"),
+                                Op::FindProperty { .. } => println!("|FindProperty|GetScriptGlobals"),
+                                _ => {}
+                            }
                             *op = Op::GetScriptGlobals { script };
 
                             if script.traits_loaded() {
@@ -937,6 +970,7 @@ pub fn optimize<'gc>(
                 stack.pop();
             }
             Op::GetProperty { multiname } => {
+                println!("|GetProperty|?");
                 let mut stack_push_done = false;
                 stack.pop_for_multiname(*multiname);
                 let stack_value = stack.pop_or_any();
@@ -946,6 +980,7 @@ pub fn optimize<'gc>(
                         match vtable.get_trait(multiname) {
                             Some(Property::Slot { slot_id })
                             | Some(Property::ConstSlot { slot_id }) => {
+                                println!("|GetProperty|GetSlot");
                                 *op = Op::GetSlot { index: slot_id };
 
                                 let mut value_class = vtable.slot_classes()[slot_id as usize];
@@ -969,6 +1004,7 @@ pub fn optimize<'gc>(
                             Some(Property::Virtual {
                                 get: Some(disp_id), ..
                             }) => {
+                                println!("|GetProperty|CallMethod");
                                 *op = Op::CallMethod {
                                     num_args: 0,
                                     index: disp_id,
@@ -986,6 +1022,7 @@ pub fn optimize<'gc>(
                 }
             }
             Op::InitProperty { multiname } => {
+                println!("|InitProperty|?");
                 let set_value = stack.pop_or_any();
 
                 stack.pop_for_multiname(*multiname);
@@ -1014,10 +1051,12 @@ pub fn optimize<'gc>(
                                         *op = Op::SetSlotNoCoerce { index: slot_id };
                                     }
                                 }
+                                println!("|InitProperty|{:?}", op);
                             }
                             Some(Property::Virtual {
                                 set: Some(disp_id), ..
                             }) => {
+                                println!("|InitProperty|CallMethod");
                                 *op = Op::CallMethod {
                                     num_args: 1,
                                     index: disp_id,
@@ -1031,6 +1070,7 @@ pub fn optimize<'gc>(
                 // `stack_pop_multiname` handled lazy
             }
             Op::SetProperty { multiname } => {
+                println!("|SetProperty|?");
                 let set_value = stack.pop_or_any();
 
                 stack.pop_for_multiname(*multiname);
@@ -1058,10 +1098,12 @@ pub fn optimize<'gc>(
                                         *op = Op::SetSlotNoCoerce { index: slot_id };
                                     }
                                 }
+                                println!("|SetProperty|{:?}", op);
                             }
                             Some(Property::Virtual {
                                 set: Some(disp_id), ..
                             }) => {
+                                println!("|SetProperty|CallMethod");
                                 *op = Op::CallMethod {
                                     num_args: 1,
                                     index: disp_id,
@@ -1152,6 +1194,7 @@ pub fn optimize<'gc>(
                 multiname,
                 num_args,
             } => {
+                println!("|CallProperty|?");
                 // Arguments
                 stack.popn(*num_args);
 
@@ -1164,6 +1207,7 @@ pub fn optimize<'gc>(
                     if let Some(vtable) = stack_value.vtable() {
                         match vtable.get_trait(multiname) {
                             Some(Property::Method { disp_id }) => {
+                                println!("|CallProperty|CallMethod");
                                 *op = Op::CallMethod {
                                     num_args: *num_args,
                                     index: disp_id,
@@ -1183,6 +1227,7 @@ pub fn optimize<'gc>(
                 multiname,
                 num_args,
             } => {
+                println!("|CallPropVoid|?");
                 // Arguments
                 stack.popn(*num_args);
 
@@ -1195,6 +1240,7 @@ pub fn optimize<'gc>(
                     if let Some(vtable) = stack_value.vtable() {
                         match vtable.get_trait(multiname) {
                             Some(Property::Method { disp_id }) => {
+                                println!("|CallPropVoid|CallMethod");
                                 *op = Op::CallMethod {
                                     num_args: *num_args,
                                     index: disp_id,
@@ -1371,16 +1417,19 @@ pub fn optimize<'gc>(
                 last_op_was_block_terminating = true;
             }
             Op::ReturnValue => {
+                println!("|ReturnValue|?");
                 let stack_value = stack.pop_or_any();
 
                 if let Some(return_type) = return_type {
                     if let Some(stack_value_class) = stack_value.class {
                         if stack_value_class == return_type {
+                            println!("|ReturnValue|ReturnValueNoCoerce");
                             *op = Op::ReturnValueNoCoerce;
                         }
                     }
                 } else {
                     // Return type was Any, no coercion will be done anyways
+                    println!("|ReturnValue|ReturnValueNoCoerce");
                     *op = Op::ReturnValueNoCoerce;
                 }
 
