@@ -256,6 +256,27 @@ pub fn make_error_1032<'gc>(activation: &mut Activation<'_, 'gc>, index: u32) ->
 
 #[inline(never)]
 #[cold]
+pub fn make_error_1053<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    trait_name: AvmString<'gc>,
+    class_name: AvmString<'gc>,
+) -> Error<'gc> {
+    let err = verify_error(
+        activation,
+        &format!(
+            "Error #1053: Illegal override of {} in {}.",
+            trait_name, class_name
+        ),
+        1053,
+    );
+    match err {
+        Ok(err) => Error::AvmError(err),
+        Err(err) => err,
+    }
+}
+
+#[inline(never)]
+#[cold]
 pub fn make_error_1054<'gc>(activation: &mut Activation<'_, 'gc>) -> Error<'gc> {
     let err = verify_error(
         activation,

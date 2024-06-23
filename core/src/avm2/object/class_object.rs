@@ -194,7 +194,7 @@ impl<'gc> ClassObject<'gc> {
     fn init_instance_vtable(self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
         let class = self.inner_class_definition();
 
-        class.validate_class()?;
+        class.validate_class(activation)?;
 
         self.instance_vtable().init_vtable(
             class,
@@ -234,6 +234,8 @@ impl<'gc> ClassObject<'gc> {
         let c_class = i_class
             .c_class()
             .expect("ClassObject should have an i_class");
+
+        c_class.validate_class(activation)?;
 
         // class vtable == class traits + Class instance traits
         let class_vtable = VTable::empty(activation.context.gc_context);

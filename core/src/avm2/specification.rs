@@ -436,7 +436,6 @@ impl Definition {
                     );
                 }
                 TraitKind::Class { .. } => {}
-                TraitKind::Function { .. } => {}
                 TraitKind::Const {
                     type_name,
                     default_value,

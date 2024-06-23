@@ -1,7 +1,7 @@
 //! AVM2 classes
 
 use crate::avm2::activation::Activation;
-use crate::avm2::error::make_error_1014;
+use crate::avm2::error::{make_error_1014, make_error_1053, verify_error};
 use crate::avm2::method::{Method, NativeMethodImpl};
 use crate::avm2::object::{scriptobject_allocator, ClassObject, Object};
 use crate::avm2::script::TranslationUnit;
@@ -655,12 +655,12 @@ impl<'gc> Class<'gc> {
         Ok(())
     }
 
-    /// Completely validate a class against it's resolved superclass.
+    /// Completely validate a class against its resolved superclass.
     ///
     /// This should be called at class creation time once the superclass name
     /// has been resolved. It will return Ok for a valid class, and a
     /// VerifyError for any invalid class.
-    pub fn validate_class(self) -> Result<(), Error<'gc>> {
+    pub fn validate_class(self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
         let read = self.0.read();
 
         // System classes do not throw verify errors.
@@ -695,16 +695,58 @@ impl<'gc> Class<'gc> {
                                 //Getter/setter pairs do NOT override one another
                                 (TraitKind::Getter { .. }, TraitKind::Setter { .. }) => continue,
                                 (TraitKind::Setter { .. }, TraitKind::Getter { .. }) => continue,
-                                (_, _) => {
+
+                                (TraitKind::Const { .. }, TraitKind::Const { .. })
+                                | (TraitKind::Const { .. }, TraitKind::Slot { .. })
+                                | (TraitKind::Slot { .. }, TraitKind::Const { .. })
+                                | (TraitKind::Slot { .. }, TraitKind::Slot { .. }) => {
+                                    did_override = true;
+
+                                    // Const/Var traits override each other in avmplus
+                                    // even if the base trait is marked as final or the
+                                    // overriding trait isn't marked as override.
+                                }
+                                (_, TraitKind::Class { .. }) => {
+                                    // Class traits aren't allowed in a class
+                                    return Err(Error::AvmError(verify_error(
+                                        activation,
+                                        "Error #1059: ClassInfo is referenced before definition.",
+                                        1059,
+                                    )?));
+                                }
+                                (TraitKind::Getter { .. }, TraitKind::Getter { .. })
+                                | (TraitKind::Setter { .. }, TraitKind::Setter { .. })
+                                | (TraitKind::Method { .. }, TraitKind::Method { .. }) => {
                                     did_override = true;
 
                                     if supertrait.is_final() {
-                                        return Err(format!("VerifyError: Trait {} in class {} overrides final trait {} in class {}", instance_trait.name().local_name(), superclass.name().local_name(), supertrait.name().local_name(), superclass.name().local_name()).into());
+                                        return Err(make_error_1053(
+                                            activation,
+                                            instance_trait.name().local_name(),
+                                            read.name.to_qualified_name_err_message(
+                                                activation.context.gc_context,
+                                            ),
+                                        ));
                                     }
 
                                     if !instance_trait.is_override() {
-                                        return Err(format!("VerifyError: Trait {} in class {} has same name as trait {} in class {}, but does not override it", instance_trait.name().local_name(), self.name().local_name(), supertrait.name().local_name(), superclass.name().local_name()).into());
+                                        return Err(make_error_1053(
+                                            activation,
+                                            instance_trait.name().local_name(),
+                                            read.name.to_qualified_name_err_message(
+                                                activation.context.gc_context,
+                                            ),
+                                        ));
                                     }
+                                }
+                                (_, _) => {
+                                    return Err(make_error_1053(
+                                        activation,
+                                        instance_trait.name().local_name(),
+                                        read.name.to_qualified_name_err_message(
+                                            activation.context.gc_context,
+                                        ),
+                                    ));
                                 }
                             }
 
@@ -722,7 +764,12 @@ impl<'gc> Class<'gc> {
                 }
 
                 if instance_trait.is_override() && !did_override {
-                    return Err(format!("VerifyError: Trait {} in class {:?} marked as override, does not override any other trait", instance_trait.name().local_name(), read.name).into());
+                    return Err(make_error_1053(
+                        activation,
+                        instance_trait.name().local_name(),
+                        read.name
+                            .to_qualified_name_err_message(activation.context.gc_context),
+                    ));
                 }
             }
         }
