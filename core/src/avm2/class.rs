@@ -660,13 +660,15 @@ impl<'gc> Class<'gc> {
     /// This should be called at class creation time once the superclass name
     /// has been resolved. It will return Ok for a valid class, and a
     /// VerifyError for any invalid class.
-    pub fn validate_class(self, superclass: Option<ClassObject<'gc>>) -> Result<(), Error<'gc>> {
+    pub fn validate_class(self) -> Result<(), Error<'gc>> {
         let read = self.0.read();
 
         // System classes do not throw verify errors.
         if read.is_system {
             return Ok(());
         }
+
+        let superclass = read.super_class;
 
         if let Some(superclass) = superclass {
             for instance_trait in read.traits.iter() {
@@ -678,34 +680,32 @@ impl<'gc> Class<'gc> {
                 let mut did_override = false;
 
                 while let Some(superclass) = current_superclass {
-                    let superclass_def = superclass.inner_class_definition();
-
-                    for supertrait in &*superclass_def.traits() {
+                    for supertrait in &*superclass.traits() {
                         let super_name = supertrait.name();
                         let my_name = instance_trait.name();
 
                         let names_match = super_name.local_name() == my_name.local_name()
                             && (super_name.namespace().matches_ns(my_name.namespace())
                                 || (is_protected
-                                    && superclass_def
-                                        .protected_namespace()
-                                        .map_or(false, |prot| {
-                                            prot.exact_version_match(super_name.namespace())
-                                        })));
+                                    && superclass.protected_namespace().map_or(false, |prot| {
+                                        prot.exact_version_match(super_name.namespace())
+                                    })));
                         if names_match {
                             match (supertrait.kind(), instance_trait.kind()) {
                                 //Getter/setter pairs do NOT override one another
                                 (TraitKind::Getter { .. }, TraitKind::Setter { .. }) => continue,
                                 (TraitKind::Setter { .. }, TraitKind::Getter { .. }) => continue,
-                                (_, _) => did_override = true,
-                            }
+                                (_, _) => {
+                                    did_override = true;
 
-                            if supertrait.is_final() {
-                                return Err(format!("VerifyError: Trait {} in class {} overrides final trait {} in class {}", instance_trait.name().local_name(), superclass_def.name().local_name(), supertrait.name().local_name(), superclass_def.name().local_name()).into());
-                            }
+                                    if supertrait.is_final() {
+                                        return Err(format!("VerifyError: Trait {} in class {} overrides final trait {} in class {}", instance_trait.name().local_name(), superclass.name().local_name(), supertrait.name().local_name(), superclass.name().local_name()).into());
+                                    }
 
-                            if !instance_trait.is_override() {
-                                return Err(format!("VerifyError: Trait {} in class {} has same name as trait {} in class {}, but does not override it", instance_trait.name().local_name(), self.name().local_name(), supertrait.name().local_name(), superclass_def.name().local_name()).into());
+                                    if !instance_trait.is_override() {
+                                        return Err(format!("VerifyError: Trait {} in class {} has same name as trait {} in class {}, but does not override it", instance_trait.name().local_name(), self.name().local_name(), supertrait.name().local_name(), superclass.name().local_name()).into());
+                                    }
+                                }
                             }
 
                             break;
@@ -718,7 +718,7 @@ impl<'gc> Class<'gc> {
                         break;
                     }
 
-                    current_superclass = superclass.superclass_object();
+                    current_superclass = superclass.super_class();
                 }
 
                 if instance_trait.is_override() && !did_override {
