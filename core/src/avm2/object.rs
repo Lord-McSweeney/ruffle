@@ -580,10 +580,14 @@ pub trait TObject<'gc>: 'gc + Collect + Debug + Into<Object<'gc>> + Clone + Copy
     fn call_method(
         self,
         id: u32,
-        arguments: &[Value<'gc>],
+        argc: usize,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
         if let Some(bound_method) = self.get_bound_method(id) {
+            // Pop arguments and receiver, we'll re-push them in `bound_method.call`
+            let arguments = activation.avm2().pop_args(argc as u32);
+            activation.avm2().pop();
+
             return bound_method.call(Value::from(self.into()), arguments, activation);
         }
 
@@ -605,9 +609,8 @@ pub trait TObject<'gc>: 'gc + Collect + Debug + Into<Object<'gc>> + Clone + Copy
             return exec(
                 method,
                 scope.expect("Scope should exist here"),
-                self.into(),
                 class_obj,
-                arguments,
+                argc,
                 activation,
                 self.into(), // Callee deliberately invalid.
             );
@@ -616,6 +619,10 @@ pub trait TObject<'gc>: 'gc + Collect + Debug + Into<Object<'gc>> + Clone + Copy
         let bound_method = VTable::bind_method(activation, self.into(), full_method);
 
         self.install_bound_method(activation.context.gc_context, id, bound_method);
+
+        // Pop arguments and receiver, we'll re-push them in `bound_method.call`
+        let arguments = activation.avm2().pop_args(argc as u32);
+        activation.avm2().pop();
 
         bound_method.call(Value::from(self.into()), arguments, activation)
     }

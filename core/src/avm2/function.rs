@@ -66,12 +66,17 @@ impl<'gc> BoundMethod<'gc> {
             unbound_receiver.coerce_to_object(activation)?
         };
 
+        // Pretend that the receiver and arguments were on the stack.
+        activation.avm2().push(receiver);
+        for arg in arguments {
+            activation.avm2().push(*arg);
+        }
+
         exec(
             self.method,
             self.scope,
-            receiver,
             self.bound_class,
-            arguments,
+            arguments.len(),
             activation,
             callee,
         )
@@ -131,12 +136,14 @@ impl<'gc> BoundMethod<'gc> {
 ///
 /// Passed-in arguments will be conformed to the set of method parameters
 /// declared on the function.
+///
+/// This function expects the passed arguments to be present on the Avm2
+/// stack, and the receiver below them.
 pub fn exec<'gc>(
     method: Method<'gc>,
     scope: ScopeChain<'gc>,
-    receiver: Object<'gc>,
     bound_class: Option<ClassObject<'gc>>,
-    mut arguments: &[Value<'gc>],
+    argc: usize,
     activation: &mut Activation<'_, 'gc>,
     callee: Object<'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
@@ -151,6 +158,9 @@ pub fn exec<'gc>(
                 caller_domain,
                 caller_movie,
             );
+
+            let arguments = &activation.avm2().pop_args(argc as usize);
+            let receiver = activation.avm2().pop();
 
             if arguments.len() > bm.signature.len() && !bm.is_variadic {
                 return Err(format!(
@@ -182,17 +192,17 @@ pub fn exec<'gc>(
             (bm.method)(&mut activation, receiver, &arguments)
         }
         Method::Bytecode(bm) => {
-            if bm.is_unchecked() {
-                let max_args = bm.signature().len();
-                if arguments.len() > max_args && !bm.is_variadic() {
-                    arguments = &arguments[..max_args];
-                }
-            }
-
             // This used to be a one step called Activation::from_method,
             // but avoiding moving an Activation around helps perf
             let mut activation = Activation::from_nothing(activation.context.reborrow());
-            activation.init_from_method(bm, scope, receiver, arguments, bound_class, callee)?;
+            if let Err(e) = activation.init_from_method(bm, scope, bound_class, argc, callee) {
+                // `init_from_method` is guaranteed to fill out the `stack_depth` field
+                // before it errors, so `clear_stack_and_locals` will work properly to
+                // cleanup the activation's state.
+                activation.clear_stack_and_locals();
+
+                return Err(e);
+            }
             activation
                 .context
                 .avm2

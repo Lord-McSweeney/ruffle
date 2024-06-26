@@ -2,12 +2,13 @@ use ruffle_wstr::WString;
 
 use crate::avm2::object::TObject;
 use crate::avm2::{Activation, AvmString, Class, Multiname, Value};
+use gc_arena::Gc;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::mem::size_of;
 
 use super::function::display_function;
-use super::method::Method;
+use super::method::{BytecodeMethod, Method};
 use super::ClassObject;
 use super::Object;
 
@@ -762,10 +763,12 @@ pub fn error<'gc>(
 #[cold]
 pub fn make_mismatch_error<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    method: Method<'gc>,
-    user_arguments: &[Value<'gc>],
-    callee: Option<Object<'gc>>,
+    method: Gc<BytecodeMethod<'gc>>,
+    argc: usize,
+    callee: Object<'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let method = Method::Bytecode(method);
+
     let expected_num_params = method
         .signature()
         .iter()
@@ -773,15 +776,13 @@ pub fn make_mismatch_error<'gc>(
         .count();
 
     let mut function_name = WString::new();
-    let bound_superclass = callee.and_then(|callee| {
-        if let Some(cls) = callee.as_class_object() {
-            Some(cls)
-        } else {
-            callee
-                .as_function_object()
-                .and_then(|f| f.as_executable().and_then(|e| e.bound_superclass()))
-        }
-    });
+    let bound_superclass = if let Some(cls) = callee.as_class_object() {
+        Some(cls)
+    } else {
+        callee
+            .as_function_object()
+            .and_then(|f| f.as_executable().and_then(|e| e.bound_superclass()))
+    };
 
     display_function(&mut function_name, &method, bound_superclass);
 
@@ -790,7 +791,7 @@ pub fn make_mismatch_error<'gc>(
         &format!(
             "Error #1063: Argument count mismatch on {function_name}. Expected {}, got {}.",
             expected_num_params,
-            user_arguments.len(),
+            argc,
         ),
         1063,
     )?));

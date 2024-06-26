@@ -7,7 +7,7 @@ use crate::avm2::e4x::{escape_attribute_value, escape_element_value};
 use crate::avm2::error::{
     make_error_1065, make_error_1127, make_error_1506, make_null_or_undefined_error, type_error,
 };
-use crate::avm2::method::{BytecodeMethod, Method, ResolvedParamConfig};
+use crate::avm2::method::{BytecodeMethod, Method};
 use crate::avm2::object::{
     ArrayObject, ByteArrayObject, ClassObject, FunctionObject, NamespaceObject, ScriptObject,
     XmlListObject,
@@ -24,7 +24,6 @@ use crate::context::{GcContext, UpdateContext};
 use crate::string::{AvmAtom, AvmString};
 use crate::tag_utils::SwfMovie;
 use gc_arena::Gc;
-use std::cmp::{min, Ordering};
 use std::sync::Arc;
 use swf::avm2::types::{
     Exception, Index, Method as AbcMethod, MethodFlags as AbcMethodFlags, Namespace as AbcNamespace,
@@ -170,7 +169,7 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             Method::Bytecode(bytecode) => {
                 let body = bytecode
                     .body()
-                    .ok_or("Cannot execute non-native method (for script) without body")?;
+                    .expect("Cannot execute non-native method (for script) without body");
 
                 (body.num_locals, true)
             }
@@ -179,7 +178,7 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         let activation_class = if let Method::Bytecode(method) = method {
             let body = method
                 .body()
-                .ok_or("Cannot execute non-native method (for script) without body")?;
+                .expect("Cannot execute non-native method (for script) without body");
 
             BytecodeMethod::get_or_init_activation_class(method, context.gc_context, || {
                 let translation_unit = method.translation_unit();
@@ -255,111 +254,39 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         }
     }
 
-    /// Resolve a single parameter value.
-    ///
-    /// Given an individual parameter value and the associated parameter's
-    /// configuration, return what value should be stored in the called
-    /// function's local registers (or an error, if the parameter violates the
-    /// signature of the current called method).
-    fn resolve_parameter(
-        &mut self,
-        method: Method<'gc>,
-        value: Option<&Value<'gc>>,
-        param_config: &ResolvedParamConfig<'gc>,
-        user_arguments: &[Value<'gc>],
-        callee: Option<Object<'gc>>,
-    ) -> Result<Value<'gc>, Error<'gc>> {
-        let arg = if let Some(value) = value {
-            value
-        } else if let Some(default_value) = &param_config.default_value {
-            default_value
-        } else if param_config.param_type.is_none() {
-            // TODO: FP's system of allowing missing arguments
-            // is a more complicated than this.
-            return Ok(Value::Undefined);
-        } else {
-            return Err(Error::AvmError(make_mismatch_error(
-                self,
-                method,
-                user_arguments,
-                callee,
-            )?));
-        };
-
-        if let Some(param_class) = param_config.param_type {
-            arg.coerce_to_type(self, param_class)
-        } else {
-            Ok(*arg)
-        }
-    }
-
-    /// Statically resolve all of the parameters for a given method.
-    ///
-    /// This function makes no attempt to enforce a given method's parameter
-    /// count limits or to package variadic arguments.
-    ///
-    /// The returned list of parameters will be coerced to the stated types in
-    /// the signature, with missing parameters filled in with defaults.
-    pub fn resolve_parameters(
-        &mut self,
-        method: Method<'gc>,
-        user_arguments: &[Value<'gc>],
-        signature: &[ResolvedParamConfig<'gc>],
-        callee: Option<Object<'gc>>,
-    ) -> Result<Vec<Value<'gc>>, Error<'gc>> {
-        let mut arguments_list = Vec::new();
-        for (arg, param_config) in user_arguments.iter().zip(signature.iter()) {
-            arguments_list.push(self.resolve_parameter(
-                method,
-                Some(arg),
-                param_config,
-                user_arguments,
-                callee,
-            )?);
-        }
-
-        match user_arguments.len().cmp(&signature.len()) {
-            Ordering::Greater => {
-                //Variadic parameters exist, just push them into the list
-                arguments_list.extend_from_slice(&user_arguments[signature.len()..])
-            }
-            Ordering::Less => {
-                //Apply remaining default parameters
-                for param_config in signature[user_arguments.len()..].iter() {
-                    arguments_list.push(self.resolve_parameter(
-                        method,
-                        None,
-                        param_config,
-                        user_arguments,
-                        callee,
-                    )?);
-                }
-            }
-            _ => {}
-        }
-
-        Ok(arguments_list)
-    }
-
     /// Construct an activation for the execution of a particular bytecode
     /// method.
     /// NOTE: this is intended to be used immediately after from_nothing(),
     /// as a more efficient replacement for direct `Activation::from_method()`
+    ///
+    /// This function expects the receiver and arguments to be on the Avm2
+    /// value stack.
     pub fn init_from_method(
         &mut self,
         method: Gc<'gc, BytecodeMethod<'gc>>,
         outer: ScopeChain<'gc>,
-        this: Object<'gc>,
-        user_arguments: &[Value<'gc>],
         subclass_object: Option<ClassObject<'gc>>,
+        argc: usize,
         callee: Object<'gc>,
     ) -> Result<(), Error<'gc>> {
-        let body: Result<_, Error<'gc>> = method
+        let body = method
             .body()
-            .ok_or_else(|| "Cannot execute non-native method without body".into());
-        let body = body?;
+            .expect("Cannot execute non-native method without body");
         let num_locals = body.num_locals;
         let has_rest_or_args = method.is_variadic();
+
+        // The receiver is required for verification, so look it up here.
+        let this = self.avm2().peek(argc);
+
+        self.ip = 0;
+        self.actions_since_timeout_check = 0;
+        self.local_register_count = num_locals as usize;
+        self.outer = outer;
+        self.caller_domain = Some(outer.domain());
+        self.caller_movie = Some(method.owner_movie());
+        self.subclass_object = subclass_object;
+        self.stack_depth = self.avm2().stack_i() - argc - 1;
+        self.scope_depth = self.avm2().scope_stack.len();
 
         let activation_class =
             BytecodeMethod::get_or_init_activation_class(method, self.context.gc_context, || {
@@ -377,41 +304,67 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 ClassObject::from_class(&mut dummy_activation, activation_class, None)
             })?;
 
-        self.ip = 0;
-        self.actions_since_timeout_check = 0;
-        self.local_register_count = num_locals as usize;
-        self.outer = outer;
-        self.caller_domain = Some(outer.domain());
-        self.caller_movie = Some(method.owner_movie());
-        self.subclass_object = subclass_object;
         self.activation_class = activation_class;
-        self.stack_depth = self.avm2().stack_i();
-        self.scope_depth = self.avm2().scope_stack.len();
 
         // Everything is now setup for the verifier to run
         if method.verified_info.read().is_none() {
-            method.verify(self, this)?;
+            // This is guaranteed to pass because of `coerce_to_object_or_typeerror` checks
+            let this_object = this.coerce_to_object(self)?;
+            method.verify(self, this_object)?;
         }
 
         let verified_info = method.verified_info.read();
         let signature = &verified_info.as_ref().unwrap().param_config;
 
-        if user_arguments.len() > signature.len() && !has_rest_or_args {
+        if argc > signature.len() && !has_rest_or_args && !method.is_unchecked() {
             return Err(Error::AvmError(make_mismatch_error(
                 self,
-                Method::Bytecode(method),
-                user_arguments,
-                Some(callee),
+                method,
+                argc,
+                callee,
             )?));
         }
 
-        // Statically verify all non-variadic, provided parameters.
-        let arguments_list = self.resolve_parameters(
-            Method::Bytecode(method),
-            user_arguments,
-            signature,
-            Some(callee),
-        )?;
+        let first_arg_i = self.avm2().stack_i() - argc;
+        for i in 0..argc {
+            let stack_i = i + first_arg_i;
+
+            let arg = self.avm2().stack_at(stack_i);
+            if let Some(param_config) = signature.get(stack_i) {
+                let coerced_arg = if let Some(param_class) = param_config.param_type {
+                    arg.coerce_to_type(self, param_class)?
+                } else {
+                    arg
+                };
+
+                self.avm2().set_stack_at(stack_i, coerced_arg);
+            }
+            // If there's no param config, we leave the argument on the stack
+            // because it's part of rest or arguments.
+        }
+
+        // Now resolve default arguments.
+        if argc < signature.len() {
+            for param_config in signature[argc..].iter() {
+                let value = if let Some(default_value) = &param_config.default_value {
+                    *default_value
+                } else if method.is_unchecked() {
+                    Value::Undefined
+                } else {
+                    return Err(Error::AvmError(make_mismatch_error(
+                        self,
+                        method,
+                        argc,
+                        callee,
+                    )?));
+                };
+
+                self.avm2().push(value);
+            }
+        }
+        
+        // Now there are exactly as many arguments on stack as argc.
+        let arguments_list = self.avm2().stack_range(first_arg_i, first_arg_i + argc);
 
         let args_object = if has_rest_or_args {
             let args_array = if method
@@ -419,8 +372,8 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 .flags
                 .contains(AbcMethodFlags::NEED_ARGUMENTS)
             {
-                // note: resolve_parameters ensures that arguments_list length is >= user_arguments
-                ArrayStorage::from_args(&arguments_list[..user_arguments.len()])
+                // note: previous logic ensures that arguments_list length is >= user_arguments
+                ArrayStorage::from_args(&arguments_list[..argc])
             } else if method.method().flags.contains(AbcMethodFlags::NEED_REST) {
                 if let Some(rest_args) = arguments_list.get(signature.len()..) {
                     ArrayStorage::from_args(rest_args)
@@ -451,25 +404,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             None
         };
 
-        // Now "allocate" the locals.
-
-        let initial_stack_depth = self.avm2().stack_i();
-
-        // Register #0: receiver
-        self.avm2().push(this);
-
-        {
-            for arg in &arguments_list[0..min(signature.len(), arguments_list.len())] {
-                // Register #i + 1: argument
-                self.avm2().push(*arg);
-            }
-        }
+        // The number of local registers already loaded: receiver, arguments,
+        // and 1 more if the method uses ARGUMENTS or REST.
+        let mut used_locals = 1 + argc;
 
         if let Some(args_object) = args_object {
             self.avm2().push(args_object);
+            used_locals += 1;
         }
 
-        let used_locals = self.avm2().stack_i() - initial_stack_depth;
         // Fill in remaining locals
         let remaining_locals = num_locals as usize - used_locals;
         for _ in 0..remaining_locals {
@@ -1133,10 +1076,14 @@ impl<'a, 'gc> Activation<'a, 'gc> {
 
         // However, the optimizer can still generate it.
 
-        let args = self.pop_stack_args(arg_count);
-        let receiver = self.pop_stack().coerce_to_object_or_typeerror(self, None)?;
+        let calculated_stack_i = self.avm2().stack_i() - arg_count - 1;
+        
+        // Null-check the receiver
+        stack.peek(0).coerce_to_object_or_typeerror(self, None)?;
 
-        let value = receiver.call_method(index, &args, self)?;
+        let value = receiver.call_method(index, arg_count, self)?;
+
+        self.avm2().set_stack_i(calculated_stack_i);
 
         if push_return_value {
             self.push_stack(value);

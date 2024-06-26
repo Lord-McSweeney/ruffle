@@ -350,12 +350,18 @@ impl<'gc> ClassObject<'gc> {
     ) -> Result<Value<'gc>, Error<'gc>> {
         let scope = self.0.read().instance_scope;
         let method = self.constructor();
+
+        // Pretend that the receiver and arguments were on the stack.
+        activation.avm2().push(receiver);
+        for arg in arguments {
+            activation.avm2().push(*arg);
+        }
+
         exec(
             method,
             scope,
-            receiver.coerce_to_object(activation)?,
             Some(self),
-            arguments,
+            arguments.len(),
             activation,
             self.into(),
         )
@@ -374,12 +380,18 @@ impl<'gc> ClassObject<'gc> {
     ) -> Result<Value<'gc>, Error<'gc>> {
         let scope = self.0.read().instance_scope;
         let method = self.native_constructor();
+
+        // Pretend that the receiver and arguments were on the stack.
+        activation.avm2().push(receiver);
+        for arg in arguments {
+            activation.avm2().push(*arg);
+        }
+
         exec(
             method,
             scope,
-            receiver.coerce_to_object(activation)?,
             Some(self),
-            arguments,
+            arguments.len(),
             activation,
             self.into(),
         )
@@ -760,12 +772,18 @@ impl<'gc> TObject<'gc> for ClassObject<'gc> {
     ) -> Result<Value<'gc>, Error<'gc>> {
         if let Some(call_handler) = self.call_handler() {
             let scope = self.0.read().class_scope;
+
+            // Pretend that the receiver and arguments were on the stack.
+            activation.avm2().push(receiver);
+            for arg in arguments {
+                activation.avm2().push(*arg);
+            }
+
             exec(
                 call_handler,
                 scope,
-                receiver.coerce_to_object(activation)?,
                 Some(self),
-                arguments,
+                arguments.len(),
                 activation,
                 self.into(),
             )

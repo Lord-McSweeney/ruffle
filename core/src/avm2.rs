@@ -704,7 +704,12 @@ impl<'gc> Avm2<'gc> {
 
     #[inline(always)]
     fn stack_at(&self, stack_i: usize) -> Value<'gc> {
-        self.stack[stack_i]
+        &self.stack[stack_i]
+    }
+
+    #[inline(always)]
+    fn stack_range(&self, start: usize, end: usize) -> &[Value<'gc>] {
+        self.stack[start..end]
     }
 
     #[inline(always)]
