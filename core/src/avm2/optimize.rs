@@ -6,7 +6,7 @@ use crate::avm2::op::Op;
 use crate::avm2::property::Property;
 use crate::avm2::verify::{Exception, JumpSource};
 use crate::avm2::vtable::VTable;
-use crate::avm2::{Activation, Class, Error};
+use crate::avm2::{Activation, Class, Error, Object};
 
 use gc_arena::Gc;
 use std::collections::{HashMap, HashSet};
@@ -381,6 +381,7 @@ impl<'gc> ScopeStack<'gc> {
 pub fn optimize<'gc>(
     activation: &mut Activation<'_, 'gc>,
     method: &BytecodeMethod<'gc>,
+    this_object: Object<'gc>,
     code: &mut Vec<Op<'gc>>,
     resolved_parameters: &[ResolvedParamConfig<'gc>],
     return_type: Option<Class<'gc>>,
@@ -430,24 +431,16 @@ pub fn optimize<'gc>(
         .body()
         .expect("Cannot verify non-native method without body!");
 
-    // This can probably be done better by recording the receiver in `Activation`,
-    // but this works since it's guaranteed to be set in `Activation::from_method`.
-    let this_value = activation.local_register(0);
-
     let this_class = if let Some(this_class) = activation.subclass_object() {
-        if this_value.is_of_type(activation, this_class.inner_class_definition()) {
+        if this_object.is_of_type(this_class.inner_class_definition()) {
             Some(this_class.inner_class_definition())
-        } else if let Some(this_object) = this_value.as_object() {
-            if this_object
-                .as_class_object()
-                .map(|c| c.inner_class_definition() == this_class.inner_class_definition())
-                .unwrap_or(false)
-            {
-                // Static method
-                Some(this_object.instance_class())
-            } else {
-                None
-            }
+        } else if this_object
+            .as_class_object()
+            .map(|c| c.inner_class_definition() == this_class.inner_class_definition())
+            .unwrap_or(false)
+        {
+            // Static method
+            Some(this_object.instance_class())
         } else {
             None
         }
