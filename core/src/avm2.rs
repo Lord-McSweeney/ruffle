@@ -108,7 +108,7 @@ pub struct Avm2<'gc> {
     pub player_runtime: PlayerRuntime,
 
     /// The preallocated value stack.
-    stack: Vec<Value<'gc>>,
+    pub stack: Vec<Value<'gc>>,
     stack_i: usize,
 
     /// Scopes currently present of the scope stack.
@@ -686,7 +686,7 @@ impl<'gc> Avm2<'gc> {
 
     /// Peek the n-th value from the end of the operand stack.
     #[inline(always)]
-    fn peek(&mut self, index: usize) -> Value<'gc> {
+    fn peek(&self, index: usize) -> Value<'gc> {
         let value = self.stack[self.stack_i - index - 1];
 
         avm_debug!(self, "Stack peek {}: {value:?}", self.stack_i);
@@ -702,6 +702,22 @@ impl<'gc> Avm2<'gc> {
         args
     }
 
+    #[inline(always)]
+    fn stack_at(&self, stack_i: usize) -> Value<'gc> {
+        self.stack[stack_i]
+    }
+
+    #[inline(always)]
+    fn set_stack_at(&mut self, stack_i: usize, value: Value<'gc>) {
+        self.stack[stack_i] = value;
+    }
+
+    #[inline(always)]
+    fn stack_i(&self) -> usize {
+        self.stack_i
+    }
+
+    #[inline(always)]
     fn set_stack_i(&mut self, stack_i: usize) {
         self.stack_i = stack_i;
     }

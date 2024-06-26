@@ -7,7 +7,7 @@ use crate::avm2::method::{BytecodeMethod, ParamConfig, ResolvedParamConfig};
 use crate::avm2::multiname::Multiname;
 use crate::avm2::op::Op;
 use crate::avm2::script::TranslationUnit;
-use crate::avm2::{Activation, Error, QName};
+use crate::avm2::{Activation, Error, Object, QName};
 use crate::string::AvmAtom;
 
 use gc_arena::{Collect, Gc};
@@ -67,6 +67,7 @@ pub enum JumpSource {
 pub fn verify_method<'gc>(
     activation: &mut Activation<'_, 'gc>,
     method: &BytecodeMethod<'gc>,
+    this: Object<'gc>,
 ) -> Result<VerifiedMethodInfo<'gc>, Error<'gc>> {
     let body = method
         .body()
@@ -627,6 +628,7 @@ pub fn verify_method<'gc>(
         crate::avm2::optimize::optimize(
             activation,
             method,
+            this,
             &mut verified_code,
             &resolved_param_config,
             resolved_return_type,

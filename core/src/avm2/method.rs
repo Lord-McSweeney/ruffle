@@ -240,11 +240,15 @@ impl<'gc> BytecodeMethod<'gc> {
     }
 
     #[inline(never)]
-    pub fn verify(&self, activation: &mut Activation<'_, 'gc>) -> Result<(), Error<'gc>> {
+    pub fn verify(
+        &self,
+        activation: &mut Activation<'_, 'gc>,
+        this: Object<'gc>,
+    ) -> Result<(), Error<'gc>> {
         // TODO: avmplus seems to eaglerly verify some methods
 
         *self.verified_info.write(activation.context.gc_context) =
-            Some(crate::avm2::verify::verify_method(activation, self)?);
+            Some(crate::avm2::verify::verify_method(activation, self, this)?);
 
         Ok(())
     }
