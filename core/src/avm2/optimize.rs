@@ -535,12 +535,14 @@ pub fn optimize<'gc>(
         ScopeStack::new((method_body.max_scope_depth - method_body.init_scope_depth) as usize);
     let mut local_types = initial_local_types.clone();
     let mut last_block_op_was_block_terminating = false;
+    let mut current_op_reached_linearly;
 
     let mut worklist = vec![0];
 
     let mut seen_targets = HashSet::new();
 
     while let Some(mut i) = worklist.pop() {
+        current_op_reached_linearly = false;
         loop {
             let last_op_was_block_terminating = if i != 0 {
                 code.get(i as usize - 1)
@@ -589,7 +591,9 @@ pub fn optimize<'gc>(
                                 // the only possible way this is reachable is from the jump.
                                 // Just set the types to the types at the jump.
                                 merged_types = source_state.0.clone();
-                            } else {
+                            } else if current_op_reached_linearly {
+                                // Only if the current op was reached by incrementing i can we
+                                // rely on the current state as the state before this op.
                                 for (i, target_local) in local_types.0.iter().enumerate() {
                                     let source_local = source_state.0.at(i);
 
@@ -632,6 +636,7 @@ pub fn optimize<'gc>(
             }
 
             last_block_op_was_block_terminating = false;
+            current_op_reached_linearly = true;
 
             if let Some(expected_stack_height) = expected_stack_heights.get(&i) {
                 if stack.len() != *expected_stack_height {
