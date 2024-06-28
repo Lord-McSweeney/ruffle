@@ -94,7 +94,7 @@ use num_traits::FromPrimitive;
 
 const BROADCAST_WHITELIST: [&str; 4] = ["enterFrame", "exitFrame", "frameConstructed", "render"];
 
-const PREALLOCATED_STACK_SIZE: usize = 20000;
+const PREALLOCATED_STACK_SIZE: usize = 4000;
 
 /// The state of an AVM2 interpreter.
 #[derive(Collect)]
