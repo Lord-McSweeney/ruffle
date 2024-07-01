@@ -1692,10 +1692,17 @@ impl<'a, 'gc> Activation<'a, 'gc> {
     }
 
     fn op_get_slot(&mut self, index: u32) -> Result<FrameControl<'gc>, Error<'gc>> {
-        let object = self.pop_stack().coerce_to_object_or_typeerror(self, None)?;
-        let value = object.get_slot(index)?;
+        let stack_value = self.pop_stack();
+        if let Value::Object(Object::ScriptObject(so)) = stack_value {
+            let value = so.0.read().slots[index as usize];
 
-        self.push_stack(value);
+            self.push_stack(value);
+        } else {
+            let object = stack_value.coerce_to_object_or_typeerror(self, None)?;
+            let value = object.get_slot(index)?;
+
+            self.push_stack(value);
+        }
 
         Ok(FrameControl::Continue)
     }

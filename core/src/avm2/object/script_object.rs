@@ -45,7 +45,7 @@ pub struct ScriptObjectData<'gc> {
     pub values: DynamicMap<DynamicKey<'gc>, Value<'gc>>,
 
     /// Slots stored on this object.
-    slots: Vec<Value<'gc>>,
+    pub slots: Vec<Value<'gc>>,
 
     /// Methods stored on this object.
     bound_methods: Vec<Option<FunctionObject<'gc>>>,
