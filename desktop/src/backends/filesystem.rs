@@ -1,4 +1,4 @@
-use directories::{ProjectDirs, UserDirs};
+use directories::{BaseDirs, UserDirs};
 use ruffle_core::backend::filesystem::{File, FileOpenMode, FileSystemBackend, KnownDirectories};
 use std::io::{Read, Result, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ impl File for NullFile {
 
 impl Drop for NullFile {
     fn drop(&mut self) {
-        tracing::info!("filesystem: closing file");
+        //tracing::info!("filesystem: closing file");
     }
 }
 
@@ -44,14 +44,12 @@ pub struct OsFileSystemBackend(KnownDirectories);
 
 impl OsFileSystemBackend {
     pub fn new(base_url: PathBuf) -> Self {
+        let base_dirs = BaseDirs::new().unwrap();
         let user_dirs = UserDirs::new().unwrap();
         Self(KnownDirectories {
             app: base_url,
-            // TODO use ProjectDirs
-            app_storage: ProjectDirs::from("TODO", "TODO", "TODO")
-                .unwrap()
-                .data_dir()
-                .into(),
+            // TODO
+            app_storage: base_dirs.data_dir().join("Dofus/Local Store"),
             documents: user_dirs.document_dir().unwrap().into(),
             desktop: user_dirs.desktop_dir().unwrap().into(),
             user: user_dirs.home_dir().into(),
@@ -68,48 +66,49 @@ impl FileSystemBackend for OsFileSystemBackend {
     }
 
     fn exists(&self, path: &Path) -> bool {
-        tracing::info!("filesystem: exists {:?}", path);
+        //tracing::info!("filesystem: exists {:?}", path);
         path.exists()
     }
 
     fn is_hidden(&self, path: &Path) -> bool {
-        tracing::warn!("filesystem: stubbed is_hidden has been called");
+        //tracing::warn!("filesystem: stubbed is_hidden has been called");
         path.file_name()
             .map(|n| n.to_string_lossy().starts_with('.'))
             .unwrap_or(false)
     }
 
     fn is_directory(&self, path: &Path) -> bool {
+        //tracing::info!("filesystem: is_directory {:?}", path);
         path.is_dir()
     }
 
     fn size(&self, path: &Path) -> u64 {
-        tracing::info!("filesystem: size {:?}", path);
+        //tracing::info!("filesystem: size {:?}", path);
         path.metadata().map(|m| m.len()).unwrap_or(0)
     }
 
     fn available_space(&self, _path: &Path) -> u64 {
-        tracing::warn!("filesystem: stubbed available_space has been called");
+        //tracing::warn!("filesystem: stubbed available_space has been called");
         u64::MAX
     }
 
     fn copy(&mut self, source: &Path, destination: &Path, _overwrite: bool) -> Result<()> {
-        tracing::info!("filesystem: copy {:?} -> {:?}", source, destination);
+        //tracing::info!("filesystem: copy {:?} -> {:?}", source, destination);
         std::fs::copy(source, destination).and(Ok(()))
     }
 
     fn rename(&mut self, source: &Path, destination: &Path, _overwrite: bool) -> Result<()> {
-        tracing::info!("filesystem: rename {:?} -> {:?}", source, destination);
+        //tracing::info!("filesystem: rename {:?} -> {:?}", source, destination);
         std::fs::rename(source, destination).and(Ok(()))
     }
 
     fn create_directory(&mut self, path: &Path) -> Result<()> {
-        tracing::info!("filesystem: create_directory {:?}", path);
+        //tracing::info!("filesystem: create_directory {:?}", path);
         std::fs::create_dir_all(path).and(Ok(()))
     }
 
     fn read_directory(&self, path: &Path) -> Result<Vec<PathBuf>> {
-        tracing::info!("filesystem: read_directory {:?}", path);
+        //tracing::info!("filesystem: read_directory {:?}", path);
         Ok(path
             .read_dir()?
             .filter_map(|entry| Some(entry.ok()?.path()))
@@ -117,11 +116,11 @@ impl FileSystemBackend for OsFileSystemBackend {
     }
 
     fn delete_directory(&mut self, path: &Path, delete_contents: bool) -> Result<()> {
-        tracing::info!(
+        /*tracing::info!(
             "filesystem: delete_directory {:?} delete_contents={}",
             path,
             delete_contents
-        );
+        );*/
         if delete_contents {
             std::fs::remove_dir_all(path)?;
         } else {
@@ -131,12 +130,12 @@ impl FileSystemBackend for OsFileSystemBackend {
     }
 
     fn delete_file(&mut self, path: &Path) -> Result<()> {
-        tracing::info!("filesystem: delete_file {:?}", path);
+        //tracing::info!("filesystem: delete_file {:?}", path);
         std::fs::remove_file(path).and(Ok(()))
     }
 
     fn open(&mut self, path: &Path, mode: FileOpenMode) -> Result<Box<dyn File>> {
-        tracing::info!("filesystem: open {:?}", path);
+        //tracing::info!("filesystem: open {:?}", path);
         let mut options = std::fs::OpenOptions::new();
         match mode {
             FileOpenMode::Read => options.read(true),
