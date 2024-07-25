@@ -259,6 +259,13 @@ include "flash/globalization/NationalDigitsType.as"
 include "flash/globalization/NumberFormatter.as"
 include "flash/globalization/NumberParseResult.as"
 
+include "flash/html/HTMLLoader.as"
+include "flash/html/HTMLHistoryItem.as"
+include "flash/html/HTMLHost.as"
+include "flash/html/HTMLWindowCreateOptions.as"
+include "flash/html/HTMLSWFCapability.as"
+include "flash/html/HTMLPDFCapability.as"
+
 include "flash/media/AudioDecoder.as"
 include "flash/media/AudioOutputChangeReason.as"
 include "flash/media/AVCaptionStyle.as"
