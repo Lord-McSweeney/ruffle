@@ -10,12 +10,13 @@ package flash.filesystem
   import __ruffle__.stub_constructor;
   import flash.events.EventDispatcher;
   import flash.utils.ByteArray;
+  import flash.utils.IDataInput;
+  import flash.utils.IDataOutput;
 
   [Ruffle(InstanceAllocator)]
   [API("661")]
-  public class FileStream extends EventDispatcher
+  public class FileStream extends EventDispatcher implements IDataInput, IDataOutput
   {
-    public var endian:String = "LITTLE_ENDIAN";
     // public var readAhead:Number;
 
     public function FileStream()
@@ -65,7 +66,11 @@ package flash.filesystem
     public native function writeUTF(value:String):void;
     public native function writeUTFBytes(value:String):void;
 
+		public native function get endian():String;
+		public native function set endian(value:String):void;
+    
     public native function get bytesAvailable():uint;
     public native function get position():Number;
+    public native function set position(offset:Number):void;
   }
 }
