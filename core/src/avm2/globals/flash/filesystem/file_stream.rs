@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use crate::avm2::amf::{deserialize_value, serialize_value};
 use crate::avm2::bytearray::{ByteArrayStorage, Endian, ObjectEncoding};
 use crate::avm2::error::io_error;
@@ -18,6 +17,7 @@ use flash_lso::types::{AMFVersion, Element, Lso};
 use fnv::FnvHashMap;
 use ruffle_wstr::WString;
 use std::io::{Read, SeekFrom};
+use std::rc::Rc;
 
 pub fn get_bytes_available<'gc>(
     _activation: &mut Activation<'_, 'gc>,
@@ -146,24 +146,26 @@ pub fn open<'gc>(
     this: Object<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
-    if let Some(file_stream_object) = this.as_file_stream_object() {
-        if file_stream_object.handle().borrow().is_none() {
-            if let Some(file_object) = args.get_object(activation, 0, "File")?.as_file_object() {
-                if let Some(path) = file_object.native_path() {
-                    let mode = args.get_string(activation, 1)?.to_string();
-                    let handle = match activation
-                        .context
-                        .filesystem
-                        .open(&path, mode.as_str().into())
-                    {
-                        Ok(handle) => handle,
-                        Err(_) => return Err(Error::AvmError(io_error(activation, "TODO", 1000)?)),
-                    };
-                    file_stream_object.set_handle(Some(handle));
-                }
+    let this = this.as_file_stream_object().unwrap();
+
+    if this.handle().borrow().is_none() {
+        if let Some(file_object) = args.get_object(activation, 0, "File")?.as_file_object() {
+            if let Some(path) = file_object.native_path() {
+                let mode = args.get_string(activation, 1)?.to_string();
+                let handle = match activation
+                    .context
+                    .filesystem
+                    .open(&path, mode.as_str().into())
+                {
+                    Ok(handle) => handle,
+                    Err(_) => return Err(Error::AvmError(io_error(activation, "IO error", 1000)?)), // TODO
+                };
+                this.set_handle(Some(handle));
+                return Ok(Value::Undefined);
             }
         }
     }
+
     Err(Error::AvmError(io_error(activation, "TODO", 1000)?))
 }
 
