@@ -6,6 +6,7 @@ use crate::avm2::Multiname;
 use crate::avm2::TranslationUnit;
 use crate::avm2::Value;
 use gc_arena::{Collect, Gc, Mutation};
+use std::ops::Deref;
 
 use super::class::Class;
 
@@ -39,13 +40,13 @@ pub enum PropertyClass<'gc> {
     /// from the `Object` class
     Any,
     Class(Class<'gc>),
-    Name(Gc<'gc, (Multiname<'gc>, Option<TranslationUnit<'gc>>)>),
+    Name(Gc<'gc, (Gc<'gc, Multiname<'gc>>, Option<TranslationUnit<'gc>>)>),
 }
 
 impl<'gc> PropertyClass<'gc> {
     pub fn name(
         mc: &Mutation<'gc>,
-        name: Multiname<'gc>,
+        name: Gc<'gc, Multiname<'gc>>,
         unit: Option<TranslationUnit<'gc>>,
     ) -> Self {
         PropertyClass::Name(Gc::new(mc, (name, unit)))
@@ -130,7 +131,7 @@ impl<'gc> PropertyClass<'gc> {
     pub fn get_name(&self, mc: &Mutation<'gc>) -> Multiname<'gc> {
         match self {
             PropertyClass::Class(class) => class.name().into(),
-            PropertyClass::Name(gc) => gc.0.clone(),
+            PropertyClass::Name(gc) => gc.0.deref().clone(),
             PropertyClass::Any => Multiname::any(mc),
         }
     }

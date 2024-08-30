@@ -213,6 +213,8 @@ impl<'gc> PartialEq for AvmString<'gc> {
             }
         }
 
+        println!("{:?}, {:?}", self, other);
+
         // Fallback case.
         self.as_wstr() == other.as_wstr()
     }

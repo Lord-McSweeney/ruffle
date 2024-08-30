@@ -276,8 +276,11 @@ impl<'gc> ClassObject<'gc> {
         let mc = activation.context.gc_context;
 
         unlock!(Gc::write(mc, self.0), ClassObjectData, prototype).set(Some(class_proto));
-        class_proto.set_string_property_local("constructor", self.into(), activation)?;
-        class_proto.set_local_property_is_enumerable(mc, "constructor".into(), false);
+
+        let constructor_string = activation.avm2().constructor_string.into();
+        let constructor_multiname = activation.avm2().constructor_multiname;
+        class_proto.set_property_local(&constructor_multiname, self.into(), activation)?;
+        class_proto.set_local_property_is_enumerable(mc, constructor_string, false);
 
         Ok(())
     }

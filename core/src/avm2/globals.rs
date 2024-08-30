@@ -2,7 +2,6 @@ use crate::avm2::activation::Activation;
 use crate::avm2::api_version::ApiVersion;
 use crate::avm2::class::Class;
 use crate::avm2::domain::Domain;
-use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{ClassObject, ScriptObject, TObject};
 use crate::avm2::scope::{Scope, ScopeChain};
 use crate::avm2::script::Script;
@@ -15,6 +14,7 @@ use crate::avm2::Namespace;
 use crate::avm2::QName;
 use crate::tag_utils::{self, ControlFlow, SwfMovie, SwfSlice, SwfStream};
 use gc_arena::Collect;
+use ruffle_wstr::WStr;
 use std::sync::Arc;
 use swf::TagCode;
 
@@ -428,7 +428,13 @@ fn vector_class<'gc>(
     let generic_cls = generic_vector.inner_class_definition();
     generic_cls.add_application(mc, param_class, vector_cls.inner_class_definition());
 
-    let legacy_name = QName::new(activation.avm2().vector_internal_namespace, legacy_name);
+    let legacy_name = QName::new(
+        activation.avm2().vector_internal_namespace,
+        activation
+            .context
+            .interner
+            .intern_static(mc, WStr::from_units(legacy_name.as_bytes())),
+    );
 
     global
         .init_property(&legacy_name.into(), vector_cls.into(), activation)
@@ -569,7 +575,13 @@ pub fn load_player_globals<'gc>(
     ];
 
     for (namespace, name, class) in class_trait_list {
-        let qname = QName::new(*namespace, *name);
+        let qname = QName::new(
+            *namespace,
+            activation
+                .context
+                .interner
+                .intern_static(mc, WStr::from_units(name.as_bytes())),
+        );
 
         global_traits.push(Trait::from_class(qname, *class));
     }
@@ -582,7 +594,7 @@ pub fn load_player_globals<'gc>(
         // right now.
         global_traits.push(Trait::from_const(
             qname,
-            Multiname::new(public_ns, "Function"),
+            activation.avm2().function_multiname,
             Some(Value::Null),
         ));
     }
@@ -798,9 +810,14 @@ fn load_playerglobal<'gc>(
         ($activation:expr, [$(($package:expr, $class_name:expr, $field:ident)),* $(,)?]) => {
             let activation = $activation;
             $(
+                let class_name = activation.context.interner.intern_static(
+                    activation.gc(),
+                    WStr::from_units($class_name.as_bytes()),
+                );
+
                 // Lookup with the highest version, so we we see all defined classes here
                 let ns = Namespace::package($package, ApiVersion::VM_INTERNAL, &mut activation.borrow_gc());
-                let name = QName::new(ns, $class_name);
+                let name = QName::new(ns, class_name);
                 let class_object = activation.domain().get_defined_value(activation, name).unwrap_or_else(|e| panic!("Failed to lookup {name:?}: {e:?}"));
                 let class_object = class_object.as_object().unwrap().as_class_object().unwrap();
                 let sc = activation.avm2().system_classes.as_mut().unwrap();

@@ -135,7 +135,7 @@ fn value_of<'gc>(
 pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     let mc = activation.context.gc_context;
     let class = Class::new(
-        QName::new(activation.avm2().public_namespace_base_version, "Boolean"),
+        QName::new_static(activation.context, "Boolean"),
         Some(activation.avm2().class_defs().object),
         Method::from_builtin(instance_init, "<Boolean instance initializer>", mc),
         Method::from_builtin(class_init, "<Boolean class initializer>", mc),
@@ -157,9 +157,9 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     const AS3_INSTANCE_METHODS: &[(&str, NativeMethodImpl)] =
         &[("toString", to_string), ("valueOf", value_of)];
     class.define_builtin_instance_methods(
-        mc,
         activation.avm2().as3_namespace,
         AS3_INSTANCE_METHODS,
+        activation,
     );
 
     const CONSTANTS_INT: &[(&str, i32)] = &[("length", 1)];

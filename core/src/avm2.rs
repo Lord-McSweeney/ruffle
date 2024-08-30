@@ -10,13 +10,14 @@ use crate::avm2::scope::ScopeChain;
 use crate::avm2::script::{Script, TranslationUnit};
 use crate::context::{GcContext, UpdateContext};
 use crate::display_object::{DisplayObject, DisplayObjectWeak, TDisplayObject};
-use crate::string::AvmString;
+use crate::string::{AvmAtom, AvmString};
 use crate::tag_utils::SwfMovie;
 use crate::PlayerRuntime;
 
 use fnv::FnvHashMap;
 use gc_arena::lock::GcRefLock;
-use gc_arena::{Collect, Mutation};
+use gc_arena::{Collect, Gc, Mutation};
+use ruffle_wstr::WStr;
 use std::sync::Arc;
 use swf::avm2::read::Reader;
 use swf::DoAbc2Flag;
@@ -153,6 +154,20 @@ pub struct Avm2<'gc> {
     pub flash_text_engine_internal: Namespace<'gc>,
     pub flash_net_internal: Namespace<'gc>,
 
+    // Common names used in multiple places
+    pub constructor_string: AvmAtom<'gc>,
+
+    pub boolean_multiname: Gc<'gc, Multiname<'gc>>,
+    pub function_multiname: Gc<'gc, Multiname<'gc>>,
+    pub int_multiname: Gc<'gc, Multiname<'gc>>,
+    pub number_multiname: Gc<'gc, Multiname<'gc>>,
+    pub uint_multiname: Gc<'gc, Multiname<'gc>>,
+
+    pub constructor_multiname: Gc<'gc, Multiname<'gc>>,
+    pub dispatch_list_multiname: Gc<'gc, Multiname<'gc>>,
+    pub target_multiname: Gc<'gc, Multiname<'gc>>,
+    pub graphics_multiname: Gc<'gc, Multiname<'gc>>,
+
     #[collect(require_static)]
     native_method_table: &'static [Option<(&'static str, NativeMethodImpl)>],
 
@@ -215,6 +230,107 @@ impl<'gc> Avm2<'gc> {
             .map(|val| Namespace::package("", ApiVersion::from_usize(val).unwrap(), context))
             .collect();
 
+        let public_namespace_base_version =
+            Namespace::package("", ApiVersion::AllVersions, context);
+
+        let public_namespace_vm_internal = Namespace::package("", ApiVersion::VM_INTERNAL, context);
+
+        let flash_display_internal = Namespace::internal("flash.display", context);
+        let flash_utils_internal = Namespace::internal("flash.utils", context);
+        let flash_geom_internal = Namespace::internal("flash.geom", context);
+        let flash_events_internal = Namespace::internal("flash.events", context);
+        let flash_text_engine_internal = Namespace::internal("flash.text.engine", context);
+        let flash_net_internal = Namespace::internal("flash.net", context);
+
+        let constructor_string = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(b"constructor"));
+
+        let boolean_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                public_namespace_base_version,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"Boolean")),
+            ),
+        );
+
+        let function_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                public_namespace_base_version,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"Function")),
+            ),
+        );
+
+        let int_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                public_namespace_base_version,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"int")),
+            ),
+        );
+
+        let number_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                public_namespace_base_version,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"Number")),
+            ),
+        );
+
+        let uint_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                public_namespace_base_version,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"uint")),
+            ),
+        );
+
+        let constructor_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(public_namespace_vm_internal, constructor_string),
+        );
+
+        let dispatch_list_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                flash_events_internal,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"_dispatchList")),
+            ),
+        );
+
+        let target_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                flash_events_internal,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"_target")),
+            ),
+        );
+
+        let graphics_multiname = Gc::new(
+            context.gc_context,
+            Multiname::new(
+                flash_display_internal,
+                context
+                    .interner
+                    .intern_static(context.gc_context, WStr::from_units(b"_graphics")),
+            ),
+        );
+
         Self {
             player_version,
             player_runtime,
@@ -227,9 +343,9 @@ impl<'gc> Avm2<'gc> {
             system_class_defs: None,
             toplevel_global_object: None,
 
-            public_namespace_base_version: Namespace::package("", ApiVersion::AllVersions, context),
+            public_namespace_base_version,
             public_namespaces,
-            public_namespace_vm_internal: Namespace::package("", ApiVersion::VM_INTERNAL, context),
+            public_namespace_vm_internal,
             internal_namespace: Namespace::internal("", context),
             as3_namespace: Namespace::package(
                 "http://adobe.com/AS3/2006/builtin",
@@ -248,12 +364,25 @@ impl<'gc> Avm2<'gc> {
                 context,
             ),
             // these are required to facilitate shared access between Rust and AS
-            flash_display_internal: Namespace::internal("flash.display", context),
-            flash_utils_internal: Namespace::internal("flash.utils", context),
-            flash_geom_internal: Namespace::internal("flash.geom", context),
-            flash_events_internal: Namespace::internal("flash.events", context),
-            flash_text_engine_internal: Namespace::internal("flash.text.engine", context),
-            flash_net_internal: Namespace::internal("flash.net", context),
+            flash_display_internal,
+            flash_utils_internal,
+            flash_geom_internal,
+            flash_events_internal,
+            flash_text_engine_internal,
+            flash_net_internal,
+
+            constructor_string,
+
+            boolean_multiname,
+            function_multiname,
+            int_multiname,
+            number_multiname,
+            uint_multiname,
+
+            constructor_multiname,
+            dispatch_list_multiname,
+            target_multiname,
+            graphics_multiname,
 
             native_method_table: Default::default(),
             native_instance_allocator_table: Default::default(),

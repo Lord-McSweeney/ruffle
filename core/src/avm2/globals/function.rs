@@ -231,14 +231,14 @@ pub fn create_class<'gc>(
 ) -> Class<'gc> {
     let gc_context = activation.context.gc_context;
     let function_i_class = Class::custom_new(
-        QName::new(activation.avm2().public_namespace_base_version, "Function"),
+        QName::new_static(activation.context, "Function"),
         Some(object_i_class),
         Method::from_builtin(instance_init, "<Function instance initializer>", gc_context),
         gc_context,
     );
 
     let function_c_class = Class::custom_new(
-        QName::new(activation.avm2().public_namespace_base_version, "Function$"),
+        QName::new_static(activation.context, "Function$"),
         Some(class_i_class),
         Method::from_builtin(class_init, "<Function class initializer>", gc_context),
         gc_context,
@@ -251,9 +251,9 @@ pub fn create_class<'gc>(
     // Fixed traits (in AS3 namespace)
     const AS3_INSTANCE_METHODS: &[(&str, NativeMethodImpl)] = &[("call", call), ("apply", apply)];
     function_i_class.define_builtin_instance_methods(
-        gc_context,
         activation.avm2().as3_namespace,
         AS3_INSTANCE_METHODS,
+        activation,
     );
 
     const PUBLIC_INSTANCE_PROPERTIES: &[(
@@ -265,9 +265,9 @@ pub fn create_class<'gc>(
         ("length", Some(length), None),
     ];
     function_i_class.define_builtin_instance_properties(
-        gc_context,
         activation.avm2().public_namespace_base_version,
         PUBLIC_INSTANCE_PROPERTIES,
+        activation,
     );
 
     const CONSTANTS_INT: &[(&str, i32)] = &[("length", 1)];

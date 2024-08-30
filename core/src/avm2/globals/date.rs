@@ -3,6 +3,7 @@
 use crate::avm2::activation::Activation;
 use crate::avm2::class::Class;
 use crate::avm2::method::{Method, NativeMethodImpl};
+use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{date_allocator, DateObject, FunctionObject, Object, TObject};
 use crate::avm2::value::Value;
 use crate::avm2::Error;
@@ -286,16 +287,23 @@ pub fn class_init<'gc>(
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let scope = activation.create_scopechain();
-    let gc_context = activation.context.gc_context;
+    let mc = activation.context.gc_context;
     let this_class = this.as_class_object().unwrap();
     let date_proto = this_class.prototype();
 
+    let public_namespace = activation.avm2().public_namespace_base_version;
+
     for (name, method) in PUBLIC_INSTANCE_AND_PROTO_METHODS {
-        date_proto.set_string_property_local(
-            *name,
+        let interned_name = activation
+            .context
+            .interner
+            .intern_wstr(mc, WStr::from_units(name.as_bytes()));
+
+        date_proto.set_property_local(
+            &Multiname::new(public_namespace, interned_name),
             FunctionObject::from_method(
                 activation,
-                Method::from_builtin(*method, name, gc_context),
+                Method::from_builtin(*method, name, mc),
                 scope,
                 None,
                 None,
@@ -304,7 +312,7 @@ pub fn class_init<'gc>(
             .into(),
             activation,
         )?;
-        date_proto.set_local_property_is_enumerable(gc_context, (*name).into(), false);
+        date_proto.set_local_property_is_enumerable(mc, interned_name.into(), false);
     }
     Ok(Value::Undefined)
 }
@@ -1325,7 +1333,7 @@ pub fn parse<'gc>(
 pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     let mc = activation.context.gc_context;
     let class = Class::new(
-        QName::new(activation.avm2().public_namespace_base_version, "Date"),
+        QName::new_static(activation.context, "Date"),
         Some(activation.avm2().class_defs().object),
         Method::from_builtin(instance_init, "<Date instance initializer>", mc),
         Method::from_builtin(class_init, "<Date class initializer>", mc),
@@ -1368,14 +1376,14 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
         ("timezoneOffset", Some(timezone_offset), None),
     ];
     class.define_builtin_instance_properties(
-        mc,
         activation.avm2().public_namespace_base_version,
         PUBLIC_INSTANCE_PROPERTIES,
+        activation,
     );
     class.define_builtin_instance_methods(
-        mc,
         activation.avm2().as3_namespace,
         PUBLIC_INSTANCE_AND_PROTO_METHODS,
+        activation,
     );
 
     const PUBLIC_CLASS_METHODS: &[(&str, NativeMethodImpl)] = &[("UTC", utc), ("parse", parse)];

@@ -688,7 +688,7 @@ fn is_dependent<'gc>(
 pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     let mc = activation.context.gc_context;
     let class = Class::new(
-        QName::new(activation.avm2().public_namespace_base_version, "String"),
+        QName::new_static(activation.context, "String"),
         Some(activation.avm2().class_defs().object),
         Method::from_builtin(instance_init, "<String instance initializer>", mc),
         Method::from_builtin(class_init, "<String class initializer>", mc),
@@ -709,14 +709,14 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
         Option<NativeMethodImpl>,
     )] = &[("length", Some(length), None)];
     class.define_builtin_instance_properties(
-        mc,
         activation.avm2().public_namespace_base_version,
         PUBLIC_INSTANCE_PROPERTIES,
+        activation,
     );
     class.define_builtin_instance_methods(
-        mc,
         activation.avm2().as3_namespace,
         PUBLIC_INSTANCE_AND_PROTO_METHODS,
+        activation,
     );
 
     #[cfg(feature = "test_only_as3")]
@@ -726,13 +726,13 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
 
         const TEST_METHODS: &[(&str, NativeMethodImpl)] = &[("isDependent", is_dependent)];
         class.define_builtin_instance_methods(
-            mc,
             Namespace::package(
                 "__ruffle__",
                 ApiVersion::AllVersions,
                 &mut activation.borrow_gc(),
             ),
             TEST_METHODS,
+            activation,
         );
     }
 

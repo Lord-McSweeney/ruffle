@@ -38,6 +38,30 @@ impl<'gc> QName<'gc> {
         }
     }
 
+    pub fn new_static(context: &mut UpdateContext<'gc>, name: &'static str) -> Self {
+        let ns = context.avm2.public_namespace_base_version;
+        let name = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(name.as_bytes()));
+
+        Self {
+            ns,
+            name: name.into(),
+        }
+    }
+
+    pub fn new_vector_static(context: &mut UpdateContext<'gc>, name: &'static str) -> Self {
+        let ns = context.avm2.vector_public_namespace;
+        let name = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(name.as_bytes()));
+
+        Self {
+            ns,
+            name: name.into(),
+        }
+    }
+
     /// Pull a `QName` from the multiname pool.
     ///
     /// This function returns an Err if the multiname does not exist or is not

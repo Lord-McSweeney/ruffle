@@ -5,7 +5,6 @@ use crate::avm2::error::make_error_2007;
 use crate::avm2::object::{Object, TObject};
 use crate::avm2::value::Value;
 use crate::avm2::Error;
-use crate::avm2::Multiname;
 use crate::display_object::TDisplayObject;
 use crate::string::AvmString;
 use fnv::FnvHashMap;
@@ -382,11 +381,11 @@ fn dispatch_event_to_target<'gc>(
         "Event dispatch: {} to {target:?}",
         event.as_event().unwrap().event_type(),
     );
+
+    let dispatch_list_multiname = activation.avm2().dispatch_list_multiname;
+
     let dispatch_list = dispatcher
-        .get_property(
-            &Multiname::new(activation.avm2().flash_events_internal, "_dispatchList"),
-            activation,
-        )?
+        .get_property(&dispatch_list_multiname, activation)?
         .as_object();
 
     if dispatch_list.is_none() {
@@ -448,11 +447,9 @@ pub fn dispatch_event<'gc>(
     event: Object<'gc>,
     simulate_dispatch: bool,
 ) -> Result<bool, Error<'gc>> {
+    let target_multiname = activation.avm2().target_multiname;
     let target = this
-        .get_property(
-            &Multiname::new(activation.avm2().flash_events_internal, "_target"),
-            activation,
-        )?
+        .get_property(&target_multiname, activation)?
         .as_object()
         .unwrap_or(this);
 

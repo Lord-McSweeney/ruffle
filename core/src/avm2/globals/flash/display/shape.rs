@@ -5,7 +5,6 @@ use crate::avm2::globals::flash::display::display_object::initialize_for_allocat
 use crate::avm2::object::{ClassObject, Object, StageObject, TObject};
 use crate::avm2::value::Value;
 use crate::avm2::Error;
-use crate::avm2::Multiname;
 use crate::display_object::Graphic;
 
 pub fn shape_allocator<'gc>(
@@ -48,18 +47,13 @@ pub fn get_graphics<'gc>(
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     if let Some(dobj) = this.as_display_object() {
+        let graphics_multiname = activation.avm2().graphics_multiname;
+
         // Lazily initialize the `Graphics` object in a hidden property.
-        let graphics = match this.get_property(
-            &Multiname::new(activation.avm2().flash_display_internal, "_graphics"),
-            activation,
-        )? {
+        let graphics = match this.get_property(&graphics_multiname, activation)? {
             Value::Undefined | Value::Null => {
                 let graphics = Value::from(StageObject::graphics(activation, dobj)?);
-                this.set_property(
-                    &Multiname::new(activation.avm2().flash_display_internal, "_graphics"),
-                    graphics,
-                    activation,
-                )?;
+                this.set_property(&graphics_multiname, graphics, activation)?;
                 graphics
             }
             graphics => graphics,

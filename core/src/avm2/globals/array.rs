@@ -1246,7 +1246,7 @@ pub fn remove_at<'gc>(
 pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     let mc = activation.context.gc_context;
     let class = Class::new(
-        QName::new(activation.avm2().public_namespace_base_version, "Array"),
+        QName::new_static(activation.context, "Array"),
         Some(activation.avm2().class_defs().object),
         Method::from_builtin(instance_init, "<Array instance initializer>", mc),
         Method::from_builtin(class_init, "<Array class initializer>", mc),
@@ -1266,15 +1266,15 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
         Option<NativeMethodImpl>,
     )] = &[("length", Some(length), Some(set_length))];
     class.define_builtin_instance_properties(
-        mc,
         activation.avm2().public_namespace_base_version,
         PUBLIC_INSTANCE_PROPERTIES,
+        activation,
     );
 
     class.define_builtin_instance_methods(
-        mc,
         activation.avm2().as3_namespace,
         PUBLIC_AS3_INSTANCE_METHODS,
+        activation,
     );
 
     const CONSTANTS_UINT: &[(&str, u32)] = &[

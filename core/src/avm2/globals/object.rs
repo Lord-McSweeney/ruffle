@@ -260,7 +260,7 @@ pub fn init<'gc>(
 pub fn create_i_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     let gc_context = activation.context.gc_context;
     let object_i_class = Class::custom_new(
-        QName::new(activation.avm2().public_namespace_base_version, "Object"),
+        QName::new_static(activation.context, "Object"),
         None,
         Method::from_builtin(instance_init, "<Object instance initializer>", gc_context),
         gc_context,
@@ -270,6 +270,8 @@ pub fn create_i_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
         gc_context,
         Method::from_builtin(class_call, "<Object call handler>", gc_context),
     );
+
+    let boolean_multiname = activation.avm2().boolean_multiname;
 
     // Fixed traits (in AS3 namespace)
     let as3_instance_methods: Vec<(&str, NativeMethodImpl, _, _)> = vec![
@@ -282,7 +284,7 @@ pub fn create_i_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
                 Multiname::any(activation.context.gc_context),
                 Value::Undefined,
             )],
-            Multiname::new(activation.avm2().public_namespace_base_version, "Boolean"),
+            (*boolean_multiname).clone(),
         ),
         (
             "isPrototypeOf",
@@ -292,7 +294,7 @@ pub fn create_i_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
                 Multiname::any(activation.context.gc_context),
                 Value::Undefined,
             )],
-            Multiname::new(activation.avm2().public_namespace_base_version, "Boolean"),
+            (*boolean_multiname).clone(),
         ),
         (
             "propertyIsEnumerable",
@@ -302,13 +304,15 @@ pub fn create_i_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
                 Multiname::any(activation.context.gc_context),
                 Value::Undefined,
             )],
-            Multiname::new(activation.avm2().public_namespace_base_version, "Boolean"),
+            (*boolean_multiname).clone(),
         ),
     ];
+
+    let as3_namespace = activation.avm2().as3_namespace;
     object_i_class.define_builtin_instance_methods_with_sig(
-        gc_context,
-        activation.avm2().as3_namespace,
+        as3_namespace,
         as3_instance_methods,
+        activation,
     );
 
     object_i_class.mark_traits_loaded(activation.context.gc_context);
@@ -326,7 +330,7 @@ pub fn create_c_class<'gc>(
 ) -> Class<'gc> {
     let gc_context = activation.context.gc_context;
     let object_c_class = Class::custom_new(
-        QName::new(activation.avm2().public_namespace_base_version, "Object$"),
+        QName::new_static(activation.context, "Object$"),
         Some(class_i_class),
         Method::from_builtin(class_init, "<Object class initializer>", gc_context),
         gc_context,
@@ -336,17 +340,17 @@ pub fn create_c_class<'gc>(
     object_c_class.define_instance_trait(
         gc_context,
         Trait::from_const(
-            QName::new(activation.avm2().public_namespace_base_version, "length"),
-            Multiname::new(activation.avm2().public_namespace_base_version, "int"),
+            QName::new_static(activation.context, "length"),
+            activation.avm2().int_multiname,
             Some(1.into()),
         ),
     );
 
     const INTERNAL_INIT_METHOD: &[(&str, NativeMethodImpl)] = &[("init", init)];
     object_c_class.define_builtin_instance_methods(
-        gc_context,
         activation.avm2().internal_namespace,
         INTERNAL_INIT_METHOD,
+        activation,
     );
 
     object_c_class.mark_traits_loaded(activation.context.gc_context);

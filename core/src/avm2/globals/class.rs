@@ -59,7 +59,7 @@ pub fn create_i_class<'gc>(
 ) -> Class<'gc> {
     let gc_context = activation.context.gc_context;
     let class_i_class = Class::custom_new(
-        QName::new(activation.avm2().public_namespace_base_version, "Class"),
+        QName::new_static(activation.context, "Class"),
         Some(object_i_class),
         Method::from_builtin(instance_init, "<Class instance initializer>", gc_context),
         gc_context,
@@ -83,9 +83,9 @@ pub fn create_i_class<'gc>(
         Option<NativeMethodImpl>,
     )] = &[("prototype", Some(prototype), None)];
     class_i_class.define_builtin_instance_properties(
-        gc_context,
         activation.avm2().public_namespace_base_version,
         PUBLIC_INSTANCE_PROPERTIES,
+        activation,
     );
 
     class_i_class.mark_traits_loaded(activation.context.gc_context);
@@ -103,7 +103,7 @@ pub fn create_c_class<'gc>(
 ) -> Class<'gc> {
     let gc_context = activation.context.gc_context;
     let class_c_class = Class::custom_new(
-        QName::new(activation.avm2().public_namespace_base_version, "Class$"),
+        QName::new_static(activation.context, "Class$"),
         Some(class_i_class),
         Method::from_builtin(class_init, "<Class class initializer>", gc_context),
         gc_context,

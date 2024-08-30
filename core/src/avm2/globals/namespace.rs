@@ -173,7 +173,7 @@ pub fn uri<'gc>(
 pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     let mc = activation.context.gc_context;
     let class = Class::new(
-        QName::new(activation.avm2().public_namespace_base_version, "Namespace"),
+        QName::new_static(activation.context, "Namespace"),
         Some(activation.avm2().class_defs().object),
         Method::from_builtin(instance_init, "<Namespace instance initializer>", mc),
         Method::from_builtin(class_init, "<Namespace class initializer>", mc),
@@ -197,9 +197,9 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
         Option<NativeMethodImpl>,
     )] = &[("prefix", Some(prefix), None), ("uri", Some(uri), None)];
     class.define_builtin_instance_properties(
-        mc,
         activation.avm2().public_namespace_base_version,
         PUBLIC_INSTANCE_PROPERTIES,
+        activation,
     );
 
     const CONSTANTS_INT: &[(&str, i32)] = &[("length", 2)];
@@ -210,9 +210,9 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     );
 
     class.define_builtin_instance_methods(
-        mc,
         activation.avm2().as3_namespace,
         PUBLIC_INSTANCE_AND_PROTO_METHODS,
+        activation,
     );
 
     class.mark_traits_loaded(activation.context.gc_context);

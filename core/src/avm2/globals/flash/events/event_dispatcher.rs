@@ -13,18 +13,13 @@ fn dispatch_list<'gc>(
     activation: &mut Activation<'_, 'gc>,
     this: Object<'gc>,
 ) -> Result<Object<'gc>, Error<'gc>> {
-    match this.get_property(
-        &Multiname::new(activation.avm2().flash_events_internal, "_dispatchList"),
-        activation,
-    )? {
+    let dispatch_list_multiname = activation.avm2().dispatch_list_multiname;
+
+    match this.get_property(&dispatch_list_multiname, activation)? {
         Value::Object(o) => Ok(o),
         _ => {
             let dispatch_list = DispatchObject::empty_list(activation);
-            this.init_property(
-                &Multiname::new(activation.avm2().flash_events_internal, "_dispatchList"),
-                dispatch_list.into(),
-                activation,
-            )?;
+            this.init_property(&dispatch_list_multiname, dispatch_list.into(), activation)?;
 
             Ok(dispatch_list)
         }
@@ -112,11 +107,9 @@ pub fn will_trigger<'gc>(
         return Ok(true.into());
     }
 
+    let target_multiname = activation.avm2().target_multiname;
     let target = this
-        .get_property(
-            &Multiname::new(activation.avm2().flash_events_internal, "_target"),
-            activation,
-        )?
+        .get_property(&target_multiname, activation)?
         .as_object()
         .unwrap_or(this);
 

@@ -900,7 +900,7 @@ pub fn splice<'gc>(
 pub fn create_generic_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     let mc = activation.context.gc_context;
     let class = Class::new(
-        QName::new(activation.avm2().vector_public_namespace, "Vector"),
+        QName::new_vector_static(activation.context, "Vector"),
         Some(activation.avm2().class_defs().object),
         Method::from_builtin(generic_init, "<Vector instance initializer>", mc),
         Method::from_builtin(generic_init, "<Vector class initializer>", mc),
@@ -942,7 +942,7 @@ pub fn create_builtin_class<'gc>(
             AvmString::new_utf8(mc, name),
         )
     } else {
-        QName::new(activation.avm2().vector_public_namespace, "Vector.<*>")
+        QName::new_vector_static(activation.context, "Vector.<*>")
     };
 
     let class = Class::new(
@@ -975,9 +975,9 @@ pub fn create_builtin_class<'gc>(
         ("fixed", Some(fixed), Some(set_fixed)),
     ];
     class.define_builtin_instance_properties(
-        mc,
         activation.avm2().public_namespace_base_version,
         PUBLIC_INSTANCE_PROPERTIES,
+        activation,
     );
 
     const AS3_INSTANCE_METHODS: &[(&str, NativeMethodImpl)] = &[
@@ -1004,9 +1004,9 @@ pub fn create_builtin_class<'gc>(
         ("splice", splice),
     ];
     class.define_builtin_instance_methods(
-        mc,
         activation.avm2().as3_namespace,
         AS3_INSTANCE_METHODS,
+        activation,
     );
 
     class.mark_traits_loaded(activation.context.gc_context);

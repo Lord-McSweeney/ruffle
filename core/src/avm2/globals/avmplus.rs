@@ -183,6 +183,9 @@ fn describe_internal_body<'gc>(
     class_def: Class<'gc>,
     flags: DescribeTypeFlags,
 ) -> Result<Object<'gc>, Error<'gc>> {
+    // The public Multiname "constructor"
+    let constructor_multiname = activation.avm2().constructor_multiname;
+
     let traits = activation
         .avm2()
         .classes()
@@ -532,10 +535,10 @@ fn describe_internal_body<'gc>(
     if flags.contains(DescribeTypeFlags::INCLUDE_CONSTRUCTOR) && !constructor.signature().is_empty()
     {
         let params = write_params(&constructor, activation)?;
-        traits.set_public_property("constructor", params.into(), activation)?;
+        traits.set_property(&constructor_multiname, params.into(), activation)?;
     } else {
         // This is needed to override the normal 'constructor' property
-        traits.set_public_property("constructor", Value::Null, activation)?;
+        traits.set_property(&constructor_multiname, Value::Null, activation)?;
     }
 
     if flags.contains(DescribeTypeFlags::INCLUDE_METADATA) {
