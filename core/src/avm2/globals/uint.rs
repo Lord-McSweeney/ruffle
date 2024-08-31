@@ -5,9 +5,10 @@ use crate::avm2::class::{Class, ClassAttributes};
 use crate::avm2::error::{make_error_1003, make_error_1004};
 use crate::avm2::globals::number::print_with_radix;
 use crate::avm2::method::{Method, NativeMethodImpl, ParamConfig};
+use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{primitive_allocator, FunctionObject, Object, TObject};
 use crate::avm2::value::Value;
-use crate::avm2::{AvmString, Error, Multiname, QName};
+use crate::avm2::{AvmString, Error, QName};
 
 /// Implements `uint`'s instance initializer.
 fn instance_init<'gc>(
@@ -49,10 +50,19 @@ fn class_init<'gc>(
     let scope = activation.create_scopechain();
     let gc_context = activation.context.gc_context;
     let this_class = this.as_class_object().unwrap();
-    let uint_proto = this_class.prototype();
+    let proto = this_class.prototype();
 
-    uint_proto.set_string_property_local(
-        "toExponential",
+    let public_namespace = activation.avm2().public_namespace_base_version;
+
+    let to_exponential_str = activation.avm2().to_exponential_string;
+    let to_fixed_str = activation.avm2().to_fixed_string;
+    let to_precision_str = activation.avm2().to_precision_string;
+    let to_locale_string_str = activation.avm2().to_locale_string_string;
+    let to_string_str = activation.avm2().to_string_string;
+    let value_of_str = activation.avm2().value_of_string;
+
+    proto.set_property_local(
+        &Multiname::new(public_namespace, to_exponential_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_exponential, "toExponential", gc_context),
@@ -64,8 +74,8 @@ fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    uint_proto.set_string_property_local(
-        "toFixed",
+    proto.set_property_local(
+        &Multiname::new(public_namespace, to_fixed_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_fixed, "toFixed", gc_context),
@@ -77,8 +87,8 @@ fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    uint_proto.set_string_property_local(
-        "toPrecision",
+    proto.set_property_local(
+        &Multiname::new(public_namespace, to_precision_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_precision, "toPrecision", gc_context),
@@ -90,8 +100,8 @@ fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    uint_proto.set_string_property_local(
-        "toLocaleString",
+    proto.set_property_local(
+        &Multiname::new(public_namespace, to_locale_string_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_string, "toLocaleString", gc_context),
@@ -103,8 +113,8 @@ fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    uint_proto.set_string_property_local(
-        "toString",
+    proto.set_property_local(
+        &Multiname::new(public_namespace, to_string_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_string, "toString", gc_context),
@@ -116,8 +126,8 @@ fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    uint_proto.set_string_property_local(
-        "valueOf",
+    proto.set_property_local(
+        &Multiname::new(public_namespace, value_of_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(value_of, "valueOf", gc_context),
@@ -130,12 +140,12 @@ fn class_init<'gc>(
         activation,
     )?;
 
-    uint_proto.set_local_property_is_enumerable(gc_context, "toExponential".into(), false);
-    uint_proto.set_local_property_is_enumerable(gc_context, "toFixed".into(), false);
-    uint_proto.set_local_property_is_enumerable(gc_context, "toPrecision".into(), false);
-    uint_proto.set_local_property_is_enumerable(gc_context, "toLocaleString".into(), false);
-    uint_proto.set_local_property_is_enumerable(gc_context, "toString".into(), false);
-    uint_proto.set_local_property_is_enumerable(gc_context, "valueOf".into(), false);
+    proto.set_local_property_is_enumerable(gc_context, to_exponential_str.into(), false);
+    proto.set_local_property_is_enumerable(gc_context, to_fixed_str.into(), false);
+    proto.set_local_property_is_enumerable(gc_context, to_precision_str.into(), false);
+    proto.set_local_property_is_enumerable(gc_context, to_locale_string_str.into(), false);
+    proto.set_local_property_is_enumerable(gc_context, to_string_str.into(), false);
+    proto.set_local_property_is_enumerable(gc_context, value_of_str.into(), false);
 
     Ok(Value::Undefined)
 }

@@ -825,7 +825,7 @@ impl<'gc> Class<'gc> {
             )?);
         }
 
-        let name = QName::new(activation.avm2().public_namespace_base_version, name);
+        let name = QName::new(activation.avm2().public_namespace_base_version, name.into());
 
         let i_class = Class(GcCell::new(
             activation.context.gc_context,
@@ -1051,7 +1051,7 @@ impl<'gc> Class<'gc> {
             self.define_class_trait(
                 activation.gc(),
                 Trait::from_const(
-                    QName::new(namespace, name),
+                    QName::new(namespace, name.into()),
                     activation.avm2().number_multiname,
                     Some(value.into()),
                 ),
@@ -1075,7 +1075,7 @@ impl<'gc> Class<'gc> {
             self.define_class_trait(
                 activation.gc(),
                 Trait::from_const(
-                    QName::new(namespace, name),
+                    QName::new(namespace, name.into()),
                     activation.avm2().uint_multiname,
                     Some(value.into()),
                 ),
@@ -1090,16 +1090,18 @@ impl<'gc> Class<'gc> {
         items: &[(&'static str, i32)],
         activation: &mut Activation<'_, 'gc>,
     ) {
+        let mc = activation.gc();
+
         for &(name, value) in items {
             let name = activation
                 .context
                 .interner
-                .intern_static(activation.gc(), WStr::from_units(name.as_bytes()));
+                .intern_static(mc, WStr::from_units(name.as_bytes()));
 
             self.define_class_trait(
-                activation.gc(),
+                mc,
                 Trait::from_const(
-                    QName::new(namespace, name),
+                    QName::new(namespace, name.into()),
                     activation.avm2().int_multiname,
                     Some(value.into()),
                 ),
@@ -1125,7 +1127,7 @@ impl<'gc> Class<'gc> {
             self.define_instance_trait(
                 mc,
                 Trait::from_method(
-                    QName::new(namespace, interned_name),
+                    QName::new(namespace, interned_name.into()),
                     Method::from_builtin(value, name, mc),
                 ),
             );
@@ -1155,7 +1157,7 @@ impl<'gc> Class<'gc> {
             self.define_instance_trait(
                 mc,
                 Trait::from_method(
-                    QName::new(namespace, interned_name),
+                    QName::new(namespace, interned_name.into()),
                     Method::from_builtin_and_params(value, name, params, return_type, false, mc),
                 ),
             );
@@ -1165,15 +1167,22 @@ impl<'gc> Class<'gc> {
     #[inline(never)]
     pub fn define_builtin_class_methods(
         self,
-        mc: &Mutation<'gc>,
         namespace: Namespace<'gc>,
         items: &[(&'static str, NativeMethodImpl)],
+        activation: &mut Activation<'_, 'gc>,
     ) {
+        let mc = activation.gc();
+
         for &(name, value) in items {
+            let interned_name = activation
+                .context
+                .interner
+                .intern_static(mc, WStr::from_units(name.as_bytes()));
+
             self.define_class_trait(
                 mc,
                 Trait::from_method(
-                    QName::new(namespace, name),
+                    QName::new(namespace, interned_name.into()),
                     Method::from_builtin(value, name, mc),
                 ),
             );
@@ -1197,7 +1206,8 @@ impl<'gc> Class<'gc> {
             let interned_name = activation
                 .context
                 .interner
-                .intern_static(mc, WStr::from_units(name.as_bytes()));
+                .intern_static(mc, WStr::from_units(name.as_bytes()))
+                .into();
 
             if let Some(getter) = getter {
                 self.define_instance_trait(
@@ -1237,7 +1247,7 @@ impl<'gc> Class<'gc> {
             self.define_instance_trait(
                 mc,
                 Trait::from_const(
-                    QName::new(namespace, name),
+                    QName::new(namespace, name.into()),
                     activation.avm2().int_multiname,
                     Some(value.into()),
                 ),

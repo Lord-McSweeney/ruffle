@@ -5,12 +5,14 @@ use crate::avm2::array::ArrayStorage;
 use crate::avm2::class::Class;
 use crate::avm2::error::range_error;
 use crate::avm2::method::{Method, NativeMethodImpl};
+use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{array_allocator, ArrayObject, FunctionObject, Object, TObject};
 use crate::avm2::value::Value;
 use crate::avm2::Error;
 use crate::avm2::QName;
 use crate::string::AvmString;
 use bitflags::bitflags;
+use ruffle_wstr::WStr;
 use std::cmp::{min, Ordering};
 use std::mem::swap;
 
@@ -121,16 +123,23 @@ pub fn class_init<'gc>(
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let scope = activation.create_scopechain();
-    let gc_context = activation.context.gc_context;
+    let mc = activation.gc();
     let this_class = this.as_class_object().unwrap();
     let array_proto = this_class.prototype();
 
+    let public_namespace = activation.avm2().public_namespace_base_version;
+
     for (name, method) in PUBLIC_PROTO_METHODS {
-        array_proto.set_string_property_local(
-            *name,
+        let interned_name = activation
+            .context
+            .interner
+            .intern_wstr(mc, WStr::from_units(name.as_bytes()));
+
+        array_proto.set_property_local(
+            &Multiname::new(public_namespace, interned_name),
             FunctionObject::from_method(
                 activation,
-                Method::from_builtin(*method, name, gc_context),
+                Method::from_builtin(*method, name, mc),
                 scope,
                 None,
                 None,
@@ -139,7 +148,7 @@ pub fn class_init<'gc>(
             .into(),
             activation,
         )?;
-        array_proto.set_local_property_is_enumerable(gc_context, (*name).into(), false);
+        array_proto.set_local_property_is_enumerable(mc, interned_name.into(), false);
     }
 
     Ok(Value::Undefined)

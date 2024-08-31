@@ -4,6 +4,7 @@ use crate::avm2::activation::Activation;
 use crate::avm2::class::{Class, ClassAttributes};
 use crate::avm2::error::make_error_1004;
 use crate::avm2::method::{Method, NativeMethodImpl};
+use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{primitive_allocator, FunctionObject, Object, TObject};
 use crate::avm2::regexp::RegExpFlags;
 use crate::avm2::value::Value;
@@ -11,6 +12,7 @@ use crate::avm2::Error;
 use crate::avm2::QName;
 use crate::avm2::{ArrayObject, ArrayStorage};
 use crate::string::{AvmString, WString};
+use ruffle_wstr::WStr;
 
 // All of these methods will be defined as both
 // AS3 instance methods and methods on the `String` class prototype.
@@ -44,7 +46,7 @@ pub fn instance_init<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     activation.super_init(this, &[])?;
 
-    if let Some(mut value) = this.as_primitive_mut(activation.context.gc_context) {
+    if let Some(mut value) = this.as_primitive_mut(activation.gc()) {
         if !matches!(*value, Value::String(_)) {
             *value = args
                 .get(0)
@@ -64,16 +66,23 @@ pub fn class_init<'gc>(
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let scope = activation.create_scopechain();
-    let gc_context = activation.context.gc_context;
+    let mc = activation.gc();
     let this_class = this.as_class_object().unwrap();
     let proto = this_class.prototype();
 
+    let public_namespace = activation.avm2().public_namespace_base_version;
+
     for (name, method) in PUBLIC_INSTANCE_AND_PROTO_METHODS {
-        proto.set_string_property_local(
-            *name,
+        let interned_name = activation
+            .context
+            .interner
+            .intern_wstr(mc, WStr::from_units(name.as_bytes()));
+
+        proto.set_property_local(
+            &Multiname::new(public_namespace, interned_name),
             FunctionObject::from_method(
                 activation,
-                Method::from_builtin(*method, name, gc_context),
+                Method::from_builtin(*method, name, mc),
                 scope,
                 None,
                 None,
@@ -82,8 +91,9 @@ pub fn class_init<'gc>(
             .into(),
             activation,
         )?;
-        proto.set_local_property_is_enumerable(gc_context, (*name).into(), false);
+        proto.set_local_property_is_enumerable(mc, interned_name.into(), false);
     }
+
     Ok(Value::Undefined)
 }
 
@@ -744,12 +754,17 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     );
 
     const AS3_CLASS_METHODS: &[(&str, NativeMethodImpl)] = &[("fromCharCode", from_char_code)];
-    const PUBLIC_CLASS_METHODS: &[(&str, NativeMethodImpl)] = &[("fromCharCode", from_char_code)];
-    class.define_builtin_class_methods(mc, activation.avm2().as3_namespace, AS3_CLASS_METHODS);
     class.define_builtin_class_methods(
-        mc,
+        activation.avm2().as3_namespace,
+        AS3_CLASS_METHODS,
+        activation,
+    );
+
+    const PUBLIC_CLASS_METHODS: &[(&str, NativeMethodImpl)] = &[("fromCharCode", from_char_code)];
+    class.define_builtin_class_methods(
         activation.avm2().public_namespace_base_version,
         PUBLIC_CLASS_METHODS,
+        activation,
     );
 
     class.mark_traits_loaded(activation.context.gc_context);

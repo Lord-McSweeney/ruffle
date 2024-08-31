@@ -47,6 +47,12 @@ pub fn class_init<'gc>(
     let this_class = this.as_class_object().unwrap();
     let object_proto = this_class.prototype();
 
+    let public_namespace = activation.avm2().public_namespace_base_version;
+
+    let to_locale_string_str = activation.avm2().to_locale_string_string;
+    let to_string_str = activation.avm2().to_string_string;
+    let value_of_str = activation.avm2().value_of_string;
+
     object_proto.set_string_property_local(
         "hasOwnProperty",
         FunctionObject::from_method(
@@ -103,8 +109,8 @@ pub fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    object_proto.set_string_property_local(
-        "toString",
+    object_proto.set_property_local(
+        &Multiname::new(public_namespace, to_string_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_string, "toString", gc_context),
@@ -116,8 +122,8 @@ pub fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    object_proto.set_string_property_local(
-        "toLocaleString",
+    object_proto.set_property_local(
+        &Multiname::new(public_namespace, to_locale_string_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_locale_string, "toLocaleString", gc_context),
@@ -129,8 +135,8 @@ pub fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    object_proto.set_string_property_local(
-        "valueOf",
+    object_proto.set_property_local(
+        &Multiname::new(public_namespace, value_of_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(value_of, "valueOf", gc_context),
@@ -151,9 +157,9 @@ pub fn class_init<'gc>(
         false,
     );
     object_proto.set_local_property_is_enumerable(gc_context, "isPrototypeOf".into(), false);
-    object_proto.set_local_property_is_enumerable(gc_context, "toString".into(), false);
-    object_proto.set_local_property_is_enumerable(gc_context, "toLocaleString".into(), false);
-    object_proto.set_local_property_is_enumerable(gc_context, "valueOf".into(), false);
+    object_proto.set_local_property_is_enumerable(gc_context, to_string_str.into(), false);
+    object_proto.set_local_property_is_enumerable(gc_context, to_locale_string_str.into(), false);
+    object_proto.set_local_property_is_enumerable(gc_context, value_of_str.into(), false);
 
     Ok(Value::Undefined)
 }

@@ -156,6 +156,12 @@ pub struct Avm2<'gc> {
 
     // Common names used in multiple places
     pub constructor_string: AvmAtom<'gc>,
+    pub to_exponential_string: AvmAtom<'gc>,
+    pub to_fixed_string: AvmAtom<'gc>,
+    pub to_precision_string: AvmAtom<'gc>,
+    pub to_locale_string_string: AvmAtom<'gc>,
+    pub to_string_string: AvmAtom<'gc>,
+    pub value_of_string: AvmAtom<'gc>,
 
     pub boolean_multiname: Gc<'gc, Multiname<'gc>>,
     pub function_multiname: Gc<'gc, Multiname<'gc>>,
@@ -245,6 +251,30 @@ impl<'gc> Avm2<'gc> {
         let constructor_string = context
             .interner
             .intern_static(context.gc_context, WStr::from_units(b"constructor"));
+
+        let to_exponential_string = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(b"toExponential"));
+
+        let to_fixed_string = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(b"toFixed"));
+
+        let to_precision_string = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(b"toPrecision"));
+
+        let to_locale_string_string = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(b"toLocaleString"));
+
+        let to_string_string = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(b"toString"));
+
+        let value_of_string = context
+            .interner
+            .intern_static(context.gc_context, WStr::from_units(b"valueOf"));
 
         let boolean_multiname = Gc::new(
             context.gc_context,
@@ -372,6 +402,12 @@ impl<'gc> Avm2<'gc> {
             flash_net_internal,
 
             constructor_string,
+            to_exponential_string,
+            to_fixed_string,
+            to_precision_string,
+            to_locale_string_string,
+            to_string_string,
+            value_of_string,
 
             boolean_multiname,
             function_multiname,

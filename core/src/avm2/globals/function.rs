@@ -5,6 +5,7 @@ use crate::avm2::class::{Class, ClassAttributes};
 use crate::avm2::error::eval_error;
 use crate::avm2::globals::array::resolve_array_hole;
 use crate::avm2::method::{Method, NativeMethodImpl};
+use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{function_allocator, FunctionObject, Object, TObject};
 use crate::avm2::value::Value;
 use crate::avm2::Error;
@@ -52,6 +53,11 @@ pub fn class_init<'gc>(
     let this_class = this.as_class_object().unwrap();
     let function_proto = this_class.prototype();
 
+    let public_namespace = activation.avm2().public_namespace_base_version;
+
+    let to_locale_string_str = activation.avm2().to_locale_string_string;
+    let to_string_str = activation.avm2().to_string_string;
+
     function_proto.set_string_property_local(
         "call",
         FunctionObject::from_method(
@@ -78,8 +84,8 @@ pub fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    function_proto.set_string_property_local(
-        "toString",
+    function_proto.set_property_local(
+        &Multiname::new(public_namespace, to_string_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_string, "toString", activation.context.gc_context),
@@ -91,8 +97,8 @@ pub fn class_init<'gc>(
         .into(),
         activation,
     )?;
-    function_proto.set_string_property_local(
-        "toLocaleString",
+    function_proto.set_property_local(
+        &Multiname::new(public_namespace, to_locale_string_str),
         FunctionObject::from_method(
             activation,
             Method::from_builtin(to_string, "toLocaleString", activation.context.gc_context),
@@ -116,12 +122,12 @@ pub fn class_init<'gc>(
     );
     function_proto.set_local_property_is_enumerable(
         activation.context.gc_context,
-        "toString".into(),
+        to_string_str.into(),
         false,
     );
     function_proto.set_local_property_is_enumerable(
         activation.context.gc_context,
-        "toLocaleString".into(),
+        to_locale_string_str.into(),
         false,
     );
 

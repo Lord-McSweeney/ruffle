@@ -12,6 +12,7 @@ use crate::avm2::Avm2;
 use crate::avm2::Error;
 use crate::avm2::Namespace;
 use crate::avm2::QName;
+use crate::string::AvmString;
 use crate::tag_utils::{self, ControlFlow, SwfMovie, SwfSlice, SwfStream};
 use gc_arena::Collect;
 use ruffle_wstr::WStr;
@@ -337,7 +338,7 @@ impl<'gc> SystemClassDefs<'gc> {
 /// This expects the looked-up value to be a function.
 fn define_fn_on_global<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    name: &'static str,
+    name: AvmString<'gc>,
     script: Script<'gc>,
 ) {
     let (_, global, domain) = script.init();
@@ -433,7 +434,8 @@ fn vector_class<'gc>(
         activation
             .context
             .interner
-            .intern_static(mc, WStr::from_units(legacy_name.as_bytes())),
+            .intern_static(mc, WStr::from_units(legacy_name.as_bytes()))
+            .into(),
     );
 
     global
@@ -574,19 +576,33 @@ pub fn load_player_globals<'gc>(
         "parseInt",
     ];
 
+    let function_trait_list = function_trait_list
+        .iter()
+        .map(|string| {
+            let interned = activation
+                .context
+                .interner
+                .intern_static(mc, WStr::from_units(string.as_bytes()))
+                .into();
+
+            interned
+        })
+        .collect::<Vec<_>>();
+
     for (namespace, name, class) in class_trait_list {
         let qname = QName::new(
             *namespace,
             activation
                 .context
                 .interner
-                .intern_static(mc, WStr::from_units(name.as_bytes())),
+                .intern_static(mc, WStr::from_units(name.as_bytes()))
+                .into(),
         );
 
         global_traits.push(Trait::from_class(qname, *class));
     }
 
-    for function_name in function_trait_list {
+    for function_name in &function_trait_list {
         let qname = QName::new(public_ns, *function_name);
 
         // FIXME: These should be TraitKind::Methods, to match how they are when
@@ -749,9 +765,9 @@ pub fn load_player_globals<'gc>(
     // this call.
     load_playerglobal(activation, domain)?;
 
-    for function_name in function_trait_list {
+    for function_name in &function_trait_list {
         // Now copy those functions to the global object.
-        define_fn_on_global(activation, function_name, script);
+        define_fn_on_global(activation, *function_name, script);
     }
 
     Ok(())
@@ -817,7 +833,7 @@ fn load_playerglobal<'gc>(
 
                 // Lookup with the highest version, so we we see all defined classes here
                 let ns = Namespace::package($package, ApiVersion::VM_INTERNAL, &mut activation.borrow_gc());
-                let name = QName::new(ns, class_name);
+                let name = QName::new(ns, class_name.into());
                 let class_object = activation.domain().get_defined_value(activation, name).unwrap_or_else(|e| panic!("Failed to lookup {name:?}: {e:?}"));
                 let class_object = class_object.as_object().unwrap().as_class_object().unwrap();
                 let sc = activation.avm2().system_classes.as_mut().unwrap();

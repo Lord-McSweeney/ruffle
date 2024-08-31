@@ -287,7 +287,7 @@ pub fn class_init<'gc>(
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let scope = activation.create_scopechain();
-    let mc = activation.context.gc_context;
+    let mc = activation.gc();
     let this_class = this.as_class_object().unwrap();
     let date_proto = this_class.prototype();
 
@@ -314,6 +314,7 @@ pub fn class_init<'gc>(
         )?;
         date_proto.set_local_property_is_enumerable(mc, interned_name.into(), false);
     }
+
     Ok(Value::Undefined)
 }
 
@@ -1389,9 +1390,9 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> Class<'gc> {
     const PUBLIC_CLASS_METHODS: &[(&str, NativeMethodImpl)] = &[("UTC", utc), ("parse", parse)];
 
     class.define_builtin_class_methods(
-        mc,
         activation.avm2().public_namespace_base_version,
         PUBLIC_CLASS_METHODS,
+        activation,
     );
 
     const CLASS_CONSTANTS_INT: &[(&str, i32)] = &[("length", 7)];

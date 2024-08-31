@@ -31,7 +31,7 @@ impl<'gc> PartialEq for QName<'gc> {
 impl<'gc> Eq for QName<'gc> {}
 
 impl<'gc> QName<'gc> {
-    pub fn new(ns: Namespace<'gc>, name: impl Into<AvmString<'gc>>) -> Self {
+    pub fn new(ns: Namespace<'gc>, name: AvmString<'gc>) -> Self {
         Self {
             ns,
             name: name.into(),

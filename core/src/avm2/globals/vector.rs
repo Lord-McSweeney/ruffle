@@ -8,6 +8,7 @@ use crate::avm2::globals::array::{
     SortOptions,
 };
 use crate::avm2::method::{Method, NativeMethodImpl};
+use crate::avm2::multiname::Multiname;
 use crate::avm2::object::{
     vector_allocator, ClassObject, FunctionObject, Object, TObject, VectorObject,
 };
@@ -16,6 +17,7 @@ use crate::avm2::vector::VectorStorage;
 use crate::avm2::Error;
 use crate::avm2::QName;
 use crate::string::AvmString;
+use ruffle_wstr::WStr;
 use std::cmp::{max, min, Ordering};
 
 pub fn generic_vector_allocator<'gc>(
@@ -120,6 +122,8 @@ fn class_init<'gc>(
     this: Object<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let scope = activation.create_scopechain();
+    let mc = activation.gc();
     let proto = this
         .get_public_property("prototype", activation)?
         .as_object()
@@ -129,7 +133,6 @@ fn class_init<'gc>(
                 this.instance_of_class_name(activation.context.gc_context)
             )
         })?;
-    let scope = activation.create_scopechain();
 
     const PUBLIC_PROTOTYPE_METHODS: &[(&str, NativeMethodImpl)] = &[
         ("concat", concat),
@@ -152,22 +155,26 @@ fn class_init<'gc>(
         ("sort", sort),
         ("splice", splice),
     ];
+
+    let public_namespace = activation.avm2().public_namespace_base_version;
+
     for (pubname, func) in PUBLIC_PROTOTYPE_METHODS {
-        proto.set_string_property_local(
-            *pubname,
+        let interned_name = activation
+            .context
+            .interner
+            .intern_wstr(mc, WStr::from_units(pubname.as_bytes()));
+
+        proto.set_property_local(
+            &Multiname::new(public_namespace, interned_name),
             FunctionObject::from_function(
                 activation,
-                Method::from_builtin(*func, pubname, activation.context.gc_context),
+                Method::from_builtin(*func, pubname, mc),
                 scope,
             )?
             .into(),
             activation,
         )?;
-        proto.set_local_property_is_enumerable(
-            activation.context.gc_context,
-            (*pubname).into(),
-            false,
-        );
+        proto.set_local_property_is_enumerable(mc, interned_name.into(), false);
     }
 
     Ok(Value::Undefined)
