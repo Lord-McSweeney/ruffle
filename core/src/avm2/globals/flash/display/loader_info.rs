@@ -435,8 +435,13 @@ pub fn get_bytes<'gc>(
         LoaderStream::Swf(root, dobj) => (root, dobj),
     };
 
-    let ba_class = activation.context.avm2.classes().bytearray;
-    let ba = ba_class.construct(activation, &[])?;
+    let ba = activation
+        .avm2()
+        .classes()
+        .bytearray
+        .construct(activation, &[])?
+        .as_object()
+        .unwrap();
 
     if root.data().is_empty() {
         return Ok(ba.into());

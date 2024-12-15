@@ -3,7 +3,7 @@
 use crate::avm1::{Activation, ActivationIdentifier, TObject};
 use crate::avm2::{
     Activation as Avm2Activation, Avm2, EventObject as Avm2EventObject, Multiname as Avm2Multiname,
-    TObject as _, Value as Avm2Value,
+    Value as Avm2Value,
 };
 use crate::context::{RenderContext, UpdateContext};
 use crate::display_object::avm1_button::Avm1Button;
@@ -33,7 +33,7 @@ pub fn dispatch_removed_from_stage_event<'gc>(
 ) {
     if let Avm2Value::Object(object) = child.object2() {
         let removed_evt = Avm2EventObject::bare_default_event(context, "removedFromStage");
-        Avm2::dispatch_event(context, removed_evt, object);
+        Avm2::dispatch_event(context, removed_evt.into(), object);
     }
 
     if let Some(child_container) = child.as_container() {
@@ -48,7 +48,7 @@ pub fn dispatch_removed_from_stage_event<'gc>(
 pub fn dispatch_removed_event<'gc>(child: DisplayObject<'gc>, context: &mut UpdateContext<'gc>) {
     if let Avm2Value::Object(object) = child.object2() {
         let removed_evt = Avm2EventObject::bare_event(context, "removed", true, false);
-        Avm2::dispatch_event(context, removed_evt, object);
+        Avm2::dispatch_event(context, removed_evt.into(), object);
 
         if child.is_on_stage(context) {
             dispatch_removed_from_stage_event(child, context)
@@ -63,7 +63,7 @@ pub fn dispatch_added_to_stage_event_only<'gc>(
 ) {
     if let Avm2Value::Object(object) = child.object2() {
         let added_evt = Avm2EventObject::bare_default_event(context, "addedToStage");
-        Avm2::dispatch_event(context, added_evt, object);
+        Avm2::dispatch_event(context, added_evt.into(), object);
     }
 }
 
@@ -92,7 +92,7 @@ pub fn dispatch_added_to_stage_event<'gc>(
 pub fn dispatch_added_event_only<'gc>(child: DisplayObject<'gc>, context: &mut UpdateContext<'gc>) {
     if let Avm2Value::Object(object) = child.object2() {
         let added_evt = Avm2EventObject::bare_event(context, "added", true, false);
-        Avm2::dispatch_event(context, added_evt, object);
+        Avm2::dispatch_event(context, added_evt.into(), object);
     }
 }
 
@@ -719,6 +719,8 @@ impl<'gc> ChildContainer<'gc> {
                 );
                 if child.has_explicit_name() {
                     if let Avm2Value::Object(parent_obj) = parent.object2() {
+                        let parent_obj = Avm2Value::from(parent_obj);
+
                         let mut activation = Avm2Activation::from_nothing(context);
                         let name = Avm2Multiname::new(
                             activation.avm2().find_public_namespace(),

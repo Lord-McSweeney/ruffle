@@ -12,7 +12,7 @@ use crate::avm2::Namespace;
 pub fn namespace_constructor<'gc>(
     activation: &mut Activation<'_, 'gc>,
     args: &[Value<'gc>],
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     let api_version = activation.avm2().root_api_version;
     let namespaces = activation.avm2().namespaces;
 

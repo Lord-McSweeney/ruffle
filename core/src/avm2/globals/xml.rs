@@ -164,6 +164,8 @@ pub fn set_name<'gc>(
         .classes()
         .qname
         .construct(activation, &[name])?
+        .as_object()
+        .unwrap()
         .as_qname_object()
         .unwrap();
 
@@ -276,6 +278,8 @@ pub fn add_namespace<'gc>(
         .classes()
         .namespace
         .construct(activation, &[value])?
+        .as_object()
+        .unwrap()
         .as_namespace_object()
         .unwrap();
 
@@ -321,8 +325,11 @@ pub fn set_namespace<'gc>(
         .classes()
         .namespace
         .construct(activation, &[value])?
+        .as_object()
+        .unwrap()
         .as_namespace_object()
         .unwrap();
+
     let ns = E4XNamespace {
         prefix: ns.prefix(),
         uri: ns.namespace().as_uri(activation.strings()),
@@ -372,6 +379,8 @@ pub fn remove_namespace<'gc>(
         .classes()
         .namespace
         .construct(activation, &[value])?
+        .as_object()
+        .unwrap()
         .as_namespace_object()
         .unwrap();
     let ns = E4XNamespace {

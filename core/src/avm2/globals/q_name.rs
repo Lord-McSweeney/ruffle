@@ -38,7 +38,7 @@ pub fn call_handler<'gc>(
 pub fn q_name_constructor<'gc>(
     activation: &mut Activation<'_, 'gc>,
     args: &[Value<'gc>],
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     let this = QNameObject::new_empty(activation);
 
     let namespace = if args.len() >= 2 {

@@ -200,7 +200,7 @@ pub fn recursive_serialize<'gc>(
                     continue;
                 }
             }
-            let value = obj.get_public_property(name, activation)?;
+            let value = Value::from(obj).get_public_property(name, activation)?;
             let name = name.to_utf8_lossy().to_string();
             if let Some(elem) =
                 get_or_create_element(activation, name.clone(), value, object_table, amf_version)
@@ -344,7 +344,7 @@ pub fn deserialize_value_impl<'gc>(
                 activation.avm2().classes().object
             };
             let obj = target_class.construct(activation, &[])?;
-            object_map.insert(*id, obj);
+            object_map.insert(*id, obj.as_object().unwrap());
 
             for entry in elements {
                 let name = entry.name();
@@ -455,7 +455,10 @@ pub fn deserialize_value_impl<'gc>(
                 .avm2()
                 .classes()
                 .dictionary
-                .construct(activation, &[(*has_weak_keys).into()])?;
+                .construct(activation, &[(*has_weak_keys).into()])?
+                .as_object()
+                .unwrap();
+
             object_map.insert(*id, obj);
             let dict_obj = obj
                 .as_dictionary_object()

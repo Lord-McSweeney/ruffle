@@ -593,9 +593,9 @@ macro_rules! define_xml_proxy {
                 let mut children = list.children_mut(activation.context.gc_context);
                 match &mut children[..] {
                     [child] => {
-                        child
-                            .get_or_create_xml(activation)
-                            .call_property(&Multiname::new(namespaces.as3, $as_name), args, activation)
+                        let child = child.get_or_create_xml(activation);
+
+                        Value::from(child).call_property(&Multiname::new(namespaces.as3, $as_name), args, activation)
                     }
                     _ => Err(make_error_1086(activation, $as_name)),
                 }
@@ -644,7 +644,7 @@ pub fn namespace_internal_impl<'gc>(
     };
 
     match &mut children[..] {
-        [child] => child.get_or_create_xml(activation).call_property(
+        [child] => Value::from(child.get_or_create_xml(activation)).call_property(
             &Multiname::new(namespaces.as3, "namespace"),
             args,
             activation,

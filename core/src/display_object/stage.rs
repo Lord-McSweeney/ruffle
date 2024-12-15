@@ -688,7 +688,7 @@ impl<'gc> Stage<'gc> {
             }
         } else if let Avm2Value::Object(stage) = self.object2() {
             let resized_event = Avm2EventObject::bare_default_event(context, "resize");
-            Avm2::dispatch_event(context, resized_event, stage);
+            Avm2::dispatch_event(context, resized_event.into(), stage);
         }
     }
 
@@ -789,7 +789,9 @@ impl<'gc> TDisplayObject<'gc> for Stage<'gc> {
             .classes()
             .stage3d
             .construct(&mut activation, &[])
-            .expect("Failed to construct Stage3D");
+            .expect("Failed to construct Stage3D")
+            .as_object()
+            .unwrap();
 
         match avm2_stage {
             Ok(avm2_stage) => {

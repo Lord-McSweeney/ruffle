@@ -117,12 +117,12 @@ impl<'gc> AvmSerializer<'gc> {
         key: impl Fn() -> AvmString<'gc>,
         value: Value<'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let (eval_key, value) = if let Some(obj) = value.as_object() {
-            if obj.has_public_property("toJSON", activation) {
+        let (eval_key, value) = if value.as_object().is_some() {
+            if value.has_public_property("toJSON", activation) {
                 let key = key();
                 (
                     Some(key),
-                    obj.call_public_property("toJSON", &[key.into()], activation)?,
+                    value.call_public_property("toJSON", &[key.into()], activation)?,
                 )
             } else {
                 (None, value)
@@ -154,7 +154,7 @@ impl<'gc> AvmSerializer<'gc> {
             while let Some(r) = iter.next(activation) {
                 let item = r?.1;
                 let key = item.coerce_to_string(activation)?;
-                let value = obj.get_public_property(key, activation)?;
+                let value = Value::from(obj).get_public_property(key, activation)?;
                 let mapped = self.map_value(activation, || key, value)?;
                 if !matches!(mapped, Value::Undefined) {
                     js_obj.insert(
@@ -178,7 +178,7 @@ impl<'gc> AvmSerializer<'gc> {
                     Value::Null => break,
                     name_val => {
                         let name = name_val.coerce_to_string(activation)?;
-                        let value = obj.get_public_property(name, activation)?;
+                        let value = obj.get_enumerant_value(i, activation)?;
                         let mapped = self.map_value(activation, || name, value)?;
                         if !matches!(mapped, Value::Undefined) {
                             js_obj.insert(
@@ -225,10 +225,6 @@ impl<'gc> AvmSerializer<'gc> {
             Value::Bool(b) => JsonValue::from(b),
             Value::String(s) => JsonValue::from(s.to_utf8_lossy().deref()),
             Value::Object(obj) => {
-                // special case for boxed primitives
-                if let Some(prim) = obj.as_primitive() {
-                    return self.serialize_value(activation, *prim);
-                }
                 if self.obj_stack.contains(&obj) {
                     return Err(Error::AvmError(type_error(
                         activation,
