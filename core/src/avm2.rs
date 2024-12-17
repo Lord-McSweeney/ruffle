@@ -808,6 +808,13 @@ impl<'gc> Avm2<'gc> {
         args
     }
 
+    // Pop and discard a certain number of values from the stack.
+    fn pop_count(&mut self, count: usize) {
+        for _ in 0..count {
+            let _ = self.pop();
+        }
+    }
+
     fn truncate_stack(&mut self, size: usize) {
         self.stack.truncate(size);
     }

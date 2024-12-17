@@ -380,7 +380,7 @@ impl Avm2ObjectWindow {
                     label_col(&mut row);
                     row.col(|ui| {
                         if self.call_getters {
-                            let value = Value::from(object).call_method(get, &[], activation);
+                            let value = Value::from(object).call_method(get, 0, activation);
                             ValueResultWidget::new(activation, value).show(ui, messages);
                         } else {
                             let value = self.getter_values.get_mut(&key);
@@ -388,8 +388,7 @@ impl Avm2ObjectWindow {
                                 // Empty entry means we want to refresh it,
                                 // so let's do that now
                                 let widget = value.get_or_insert_with(|| {
-                                    let value =
-                                        Value::from(object).call_method(get, &[], activation);
+                                    let value = Value::from(object).call_method(get, 0, activation);
                                     ValueResultWidget::new(activation, value)
                                 });
                                 widget.show(ui, messages);

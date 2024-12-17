@@ -633,7 +633,7 @@ pub trait TObject<'gc>: 'gc + Collect + Debug + Into<Object<'gc>> + Clone + Copy
                 }
                 Property::Virtual { get: Some(get), .. } => values.push((
                     name,
-                    Value::from((*self).into()).call_method(get, &[], activation)?,
+                    Value::from((*self).into()).call_method(get, 0, activation)?,
                 )),
                 _ => {}
             }

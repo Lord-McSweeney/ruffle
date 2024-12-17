@@ -3,7 +3,7 @@
 use crate::avm2::activation::Activation;
 use crate::avm2::error;
 use crate::avm2::error::type_error;
-use crate::avm2::function::exec;
+use crate::avm2::function::exec_stack;
 use crate::avm2::object::{NamespaceObject, Object, TObject};
 use crate::avm2::property::Property;
 use crate::avm2::script::TranslationUnit;
@@ -920,9 +920,7 @@ impl<'gc> Value<'gc> {
                     Ok(bound_method.into())
                 }
             }
-            Some(Property::Virtual { get: Some(get), .. }) => {
-                self.call_method(get, &[], activation)
-            }
+            Some(Property::Virtual { get: Some(get), .. }) => self.call_method(get, 0, activation),
             Some(Property::Virtual { get: None, .. }) => {
                 let instance_class = self.instance_class(activation);
 
@@ -1039,7 +1037,10 @@ impl<'gc> Value<'gc> {
                 ))
             }
             Some(Property::Virtual { set: Some(set), .. }) => {
-                self.call_method(set, &[value], activation).map(|_| ())
+                // call_method expects the arguments to be on the AVM stack
+                activation.avm2().push(value);
+
+                self.call_method(set, 1, activation).map(|_| ())
             }
             Some(Property::ConstSlot { .. }) | Some(Property::Virtual { set: None, .. }) => {
                 let instance_class = self.instance_class(activation);
@@ -1111,7 +1112,10 @@ impl<'gc> Value<'gc> {
                 ))
             }
             Some(Property::Virtual { set: Some(set), .. }) => {
-                self.call_method(set, &[value], activation).map(|_| ())
+                // call_method expects the arguments to be on the AVM stack
+                activation.avm2().push(value);
+
+                self.call_method(set, 1, activation).map(|_| ())
             }
             Some(Property::Virtual { set: None, .. }) => {
                 let instance_class = self.instance_class(activation);
@@ -1162,9 +1166,16 @@ impl<'gc> Value<'gc> {
                 let func = object.get_slot(slot_id);
                 func.call(activation, *self, arguments)
             }
-            Some(Property::Method { disp_id }) => self.call_method(disp_id, arguments, activation),
+            Some(Property::Method { disp_id }) => {
+                // call_method expects the arguments to be on the AVM stack
+                for arg in arguments {
+                    activation.avm2().push(*arg);
+                }
+
+                self.call_method(disp_id, arguments.len() as u32, activation)
+            }
             Some(Property::Virtual { get: Some(get), .. }) => {
-                let obj = self.call_method(get, &[], activation)?;
+                let obj = self.call_method(get, 0, activation)?;
 
                 obj.call(activation, *self, arguments)
             }
@@ -1244,20 +1255,24 @@ impl<'gc> Value<'gc> {
 
     /// Call a method by its index.
     ///
-    /// This directly corresponds with the AVM2 operation `callmethod`.
+    /// This directly corresponds with the AVM2 operation `callmethod`. It expects
+    /// arguments to be present on the AVM2 stack, and will coerce them as required
+    /// by the method.
     ///
     /// This method will panic if called on null or undefined.
     pub fn call_method(
         &self,
         id: u32,
-        arguments: &[Value<'gc>],
+        argc: u32,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
         // TODO: Bound methods should be cached on the Method in a
         // WeakKeyHashMap<Value, FunctionObject>, not on the Object
         if let Some(object) = self.as_object() {
             if let Some(bound_method) = object.get_bound_method(id) {
-                return bound_method.call(activation, *self, arguments);
+                let arguments = activation.avm2().pop_args(argc);
+
+                return bound_method.call(activation, *self, &arguments);
             }
         }
 
@@ -1274,13 +1289,13 @@ impl<'gc> Value<'gc> {
                 method,
             } = full_method;
 
-            return exec(
+            return exec_stack(
                 method,
                 scope.expect("Scope should exist here"),
                 *self,
                 super_class_obj,
                 Some(class),
-                arguments,
+                argc as usize,
                 activation,
                 *self, // Callee deliberately invalid.
             );
@@ -1294,7 +1309,9 @@ impl<'gc> Value<'gc> {
             object.install_bound_method(activation.gc(), id, bound_method);
         }
 
-        bound_method.call(activation, *self, arguments)
+        let arguments = activation.avm2().pop_args(argc);
+
+        bound_method.call(activation, *self, &arguments)
     }
 
     /// Delete a named property from the value.

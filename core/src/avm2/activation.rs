@@ -25,7 +25,7 @@ use crate::string::{AvmAtom, AvmString, StringContext};
 use crate::tag_utils::SwfMovie;
 use gc_arena::Gc;
 use smallvec::SmallVec;
-use std::cmp::{min, Ordering};
+use std::cmp::Ordering;
 use std::sync::Arc;
 use swf::avm2::types::{
     Exception, Index, Method as AbcMethod, MethodFlags as AbcMethodFlags, Namespace as AbcNamespace,
@@ -51,16 +51,16 @@ impl<'gc> RegisterSet<'gc> {
     /// Create a new register set with a given number of specified registers.
     ///
     /// The given registers will be set to `undefined`.
-    pub fn new(num: u32) -> Self {
-        Self(smallvec![Value::Undefined; num as usize])
+    pub fn new(num: usize) -> Self {
+        Self(smallvec![Value::Undefined; num])
     }
 
-    pub fn get_unchecked(&self, num: u32) -> Value<'gc> {
-        self.0[num as usize]
+    pub fn get_unchecked(&self, num: usize) -> Value<'gc> {
+        self.0[num]
     }
 
-    pub fn get_unchecked_mut(&mut self, num: u32) -> &mut Value<'gc> {
-        self.0.get_mut(num as usize).unwrap()
+    pub fn get_unchecked_mut(&mut self, num: usize) -> &mut Value<'gc> {
+        self.0.get_mut(num).unwrap()
     }
 }
 
@@ -223,7 +223,7 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 body.num_locals
             }
         };
-        let mut local_registers = RegisterSet::new(num_locals + 1);
+        let mut local_registers = RegisterSet::new(num_locals as usize + 1);
 
         *local_registers.get_unchecked_mut(0) = global_object.into();
 
@@ -309,32 +309,26 @@ impl<'a, 'gc> Activation<'a, 'gc> {
     fn resolve_parameter(
         &mut self,
         method: Method<'gc>,
-        value: Option<&Value<'gc>>,
+        value: Option<Value<'gc>>,
         param_config: &ResolvedParamConfig<'gc>,
-        user_arguments: &[Value<'gc>],
+        argc: usize,
         bound_class: Option<Class<'gc>>,
+        is_unchecked: bool,
     ) -> Result<Value<'gc>, Error<'gc>> {
         let arg = if let Some(value) = value {
             value
-        } else if let Some(default_value) = &param_config.default_value {
+        } else if let Some(default_value) = param_config.default_value {
             default_value
-        } else if param_config.param_type.is_none() {
-            // TODO: FP's system of allowing missing arguments
-            // is a more complicated than this.
+        } else if is_unchecked {
             return Ok(Value::Undefined);
         } else {
-            return Err(Error::AvmError(make_mismatch_error(
-                self,
-                method,
-                user_arguments,
-                bound_class,
-            )?));
+            return Err(make_mismatch_error(self, method, argc, bound_class));
         };
 
         if let Some(param_class) = param_config.param_type {
             arg.coerce_to_type(self, param_class)
         } else {
-            Ok(*arg)
+            Ok(arg)
         }
     }
 
@@ -352,31 +346,39 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         signature: &[ResolvedParamConfig<'gc>],
         bound_class: Option<Class<'gc>>,
     ) -> Result<Vec<Value<'gc>>, Error<'gc>> {
+        let is_unchecked = if let Method::Bytecode(bm) = method {
+            bm.is_unchecked()
+        } else {
+            false
+        };
+
         let mut arguments_list = Vec::new();
         for (arg, param_config) in user_arguments.iter().zip(signature.iter()) {
             arguments_list.push(self.resolve_parameter(
                 method,
-                Some(arg),
+                Some(*arg),
                 param_config,
-                user_arguments,
+                user_arguments.len(),
                 bound_class,
+                is_unchecked,
             )?);
         }
 
         match user_arguments.len().cmp(&signature.len()) {
             Ordering::Greater => {
-                //Variadic parameters exist, just push them into the list
+                // Variadic parameters exist, just push them into the list
                 arguments_list.extend_from_slice(&user_arguments[signature.len()..])
             }
             Ordering::Less => {
-                //Apply remaining default parameters
+                // Apply remaining default parameters
                 for param_config in signature[user_arguments.len()..].iter() {
                     arguments_list.push(self.resolve_parameter(
                         method,
                         None,
                         param_config,
-                        user_arguments,
+                        user_arguments.len(),
                         bound_class,
+                        is_unchecked,
                     )?);
                 }
             }
@@ -396,19 +398,24 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         method: Gc<'gc, BytecodeMethod<'gc>>,
         outer: ScopeChain<'gc>,
         this: Value<'gc>,
-        user_arguments: &[Value<'gc>],
+        argc: usize,
         bound_superclass_object: Option<ClassObject<'gc>>,
         bound_class: Option<Class<'gc>>,
         callee: Value<'gc>,
     ) -> Result<(), Error<'gc>> {
-        let body: Result<_, Error<'gc>> = method
+        let body = method
             .body()
-            .ok_or_else(|| "Cannot execute non-native method without body".into());
-        let body = body?;
+            .expect("Cannot execute non-native method without body");
+
+        if let Some(bound_class) = bound_class {
+            assert!(this.is_of_type(self, bound_class));
+        }
+
         let num_locals = body.num_locals;
         let has_rest_or_args = method.is_variadic();
+        let is_unchecked = method.is_unchecked();
 
-        let mut local_registers = RegisterSet::new(num_locals + 1);
+        let mut local_registers = RegisterSet::new(num_locals as usize + 1);
         *local_registers.get_unchecked_mut(0) = this;
 
         let activation_class =
@@ -428,7 +435,6 @@ impl<'a, 'gc> Activation<'a, 'gc> {
 
         self.ip = 0;
         self.actions_since_timeout_check = 0;
-        self.local_registers = local_registers;
         self.outer = outer;
         self.caller_domain = Some(outer.domain());
         self.caller_movie = Some(method.owner_movie());
@@ -446,30 +452,79 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         let verified_info = method.verified_info.borrow();
         let signature = &verified_info.as_ref().unwrap().param_config;
 
-        if user_arguments.len() > signature.len() && !has_rest_or_args {
-            return Err(Error::AvmError(make_mismatch_error(
-                self,
-                Method::Bytecode(method),
-                user_arguments,
-                bound_class,
-            )?));
+        // Fast-path for exact args and no rest/arguments
+        if argc == signature.len() && !has_rest_or_args {
+            for (i, param_config) in signature.iter().enumerate() {
+                // Only peek the values; pop them all at once at the end of the function
+                let arg = self.avm2().peek(argc - i - 1);
+
+                let param_value = self.resolve_parameter(
+                    Method::Bytecode(method),
+                    Some(arg),
+                    param_config,
+                    argc,
+                    bound_class,
+                    is_unchecked,
+                )?;
+
+                *local_registers.get_unchecked_mut(i + 1) = param_value;
+            }
+
+            self.local_registers = local_registers;
+
+            // Now remove all the passed arguments from the value stack.
+            self.avm2().pop_count(argc);
+
+            return Ok(());
         }
 
-        // Statically verify all non-variadic, provided parameters.
-        let arguments_list = self.resolve_parameters(
-            Method::Bytecode(method),
-            user_arguments,
-            signature,
-            bound_class,
-        )?;
+        if argc > signature.len() && !has_rest_or_args && !is_unchecked {
+            return Err(make_mismatch_error(
+                self,
+                Method::Bytecode(method),
+                argc,
+                bound_class,
+            ));
+        }
 
-        {
-            for (i, arg) in arguments_list[0..min(signature.len(), arguments_list.len())]
-                .iter()
-                .enumerate()
-            {
-                *self.local_registers.get_unchecked_mut(1 + i as u32) = *arg;
+        for (i, param_config) in (0..argc).zip(signature.iter()) {
+            // Only peek the values; pop them all at once at the end of the function
+            let arg = self.avm2().peek(argc - i - 1);
+
+            let param_value = self.resolve_parameter(
+                Method::Bytecode(method),
+                Some(arg),
+                param_config,
+                argc,
+                bound_class,
+                is_unchecked,
+            )?;
+
+            *local_registers.get_unchecked_mut(i + 1) = param_value;
+        }
+
+        let mut has_rest_args = false;
+        match argc.cmp(&signature.len()) {
+            Ordering::Greater => {
+                // Variadic parameters exist
+                has_rest_args = true;
             }
+            Ordering::Less => {
+                //Apply remaining default parameters
+                for (i, param_config) in signature[argc..].iter().enumerate() {
+                    let param_value = self.resolve_parameter(
+                        Method::Bytecode(method),
+                        None,
+                        param_config,
+                        argc,
+                        bound_class,
+                        is_unchecked,
+                    )?;
+
+                    *local_registers.get_unchecked_mut(argc + i + 1) = param_value;
+                }
+            }
+            _ => {}
         }
 
         if has_rest_or_args {
@@ -478,11 +533,24 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 .flags
                 .contains(AbcMethodFlags::NEED_ARGUMENTS)
             {
-                // note: resolve_parameters ensures that arguments_list length is >= user_arguments
-                ArrayStorage::from_args(&arguments_list[..user_arguments.len()])
+                let mut args = Vec::with_capacity(argc);
+                for i in 0..argc {
+                    let arg = self.avm2().peek(argc - i - 1);
+
+                    args.push(Some(arg));
+                }
+
+                ArrayStorage::from_storage(args)
             } else if method.method().flags.contains(AbcMethodFlags::NEED_REST) {
-                if let Some(rest_args) = arguments_list.get(signature.len()..) {
-                    ArrayStorage::from_args(rest_args)
+                if has_rest_args {
+                    let mut rest_arr = Vec::with_capacity(argc - signature.len());
+
+                    for i in signature.len()..argc {
+                        let arg = self.avm2().peek(argc - i - 1);
+
+                        rest_arr.push(Some(arg));
+                    }
+                    ArrayStorage::from_storage(rest_arr)
                 } else {
                     ArrayStorage::new(0)
                 }
@@ -505,10 +573,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
                 );
             }
 
-            *self
-                .local_registers
-                .get_unchecked_mut(1 + signature.len() as u32) = args_object.into();
+            *local_registers.get_unchecked_mut(1 + signature.len()) = args_object.into();
         }
+
+        // We have to do this now because we need to modify local registers
+        // for args and rest/arguments before this
+        self.local_registers = local_registers;
+
+        // Now remove all the passed arguments from the value stack.
+        self.avm2().pop_count(argc);
 
         Ok(())
     }
@@ -563,13 +636,13 @@ impl<'a, 'gc> Activation<'a, 'gc> {
     /// Retrieve a local register.
     pub fn local_register(&self, id: u32) -> Value<'gc> {
         // Verification guarantees that this is valid
-        self.local_registers.get_unchecked(id)
+        self.local_registers.get_unchecked(id as usize)
     }
 
     /// Set a local register.
     pub fn set_local_register(&mut self, id: u32, value: impl Into<Value<'gc>>) {
         // Verification guarantees that this is valid
-        *self.local_registers.get_unchecked_mut(id) = value.into();
+        *self.local_registers.get_unchecked_mut(id as usize) = value.into();
     }
 
     /// Retrieve the outer scope of this activation
@@ -1141,10 +1214,15 @@ impl<'a, 'gc> Activation<'a, 'gc> {
 
         // However, the optimizer can still generate it.
 
-        let args = self.pop_stack_args(arg_count);
-        let receiver = self.pop_stack().null_check(self, None)?;
+        let receiver = self
+            .avm2()
+            .peek(arg_count as usize)
+            .null_check(self, None)?;
 
-        let value = receiver.call_method(index, &args, self)?;
+        let value = receiver.call_method(index, arg_count, self)?;
+
+        // Actually pop the receiver
+        let _ = self.pop_stack();
 
         if push_return_value {
             self.push_stack(value);

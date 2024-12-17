@@ -804,9 +804,9 @@ pub fn error<'gc>(
 pub fn make_mismatch_error<'gc>(
     activation: &mut Activation<'_, 'gc>,
     method: Method<'gc>,
-    user_arguments: &[Value<'gc>],
+    argc: usize,
     bound_class: Option<Class<'gc>>,
-) -> Result<Value<'gc>, Error<'gc>> {
+) -> Error<'gc> {
     let expected_num_params = method
         .signature()
         .iter()
@@ -817,15 +817,19 @@ pub fn make_mismatch_error<'gc>(
 
     display_function(&mut function_name, &method, bound_class);
 
-    return Err(Error::AvmError(argument_error(
+    let err = argument_error(
         activation,
         &format!(
             "Error #1063: Argument count mismatch on {function_name}. Expected {}, got {}.",
-            expected_num_params,
-            user_arguments.len(),
+            expected_num_params, argc,
         ),
         1063,
-    )?));
+    );
+
+    match err {
+        Ok(err) => Error::AvmError(err),
+        Err(err) => err,
+    }
 }
 
 fn error_constructor<'gc>(

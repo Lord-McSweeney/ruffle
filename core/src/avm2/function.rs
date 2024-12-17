@@ -1,5 +1,6 @@
 use crate::avm2::activation::Activation;
 use crate::avm2::class::Class;
+use crate::avm2::error::make_mismatch_error;
 use crate::avm2::method::{Method, ParamConfig};
 use crate::avm2::object::ClassObject;
 use crate::avm2::scope::ScopeChain;
@@ -128,6 +129,34 @@ impl<'gc> BoundMethod<'gc> {
     }
 }
 
+/// Like exec_stack, but places the arguments on the AVM stack for the caller.
+#[allow(clippy::too_many_arguments)]
+pub fn exec<'gc>(
+    method: Method<'gc>,
+    scope: ScopeChain<'gc>,
+    receiver: Value<'gc>,
+    bound_superclass: Option<ClassObject<'gc>>,
+    bound_class: Option<Class<'gc>>,
+    arguments: &[Value<'gc>],
+    activation: &mut Activation<'_, 'gc>,
+    callee: Value<'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    for arg in arguments {
+        activation.avm2().push(*arg);
+    }
+
+    exec_stack(
+        method,
+        scope,
+        receiver,
+        bound_superclass,
+        bound_class,
+        arguments.len(),
+        activation,
+        callee,
+    )
+}
+
 /// Execute a method.
 ///
 /// The function will either be called directly if it is a Rust builtin, or
@@ -137,24 +166,26 @@ impl<'gc> BoundMethod<'gc> {
 /// It is a panicking logic error to attempt to execute user code while any
 /// reachable object is currently under a GcCell write lock.
 ///
-/// Passed-in arguments will be conformed to the set of method parameters
-/// declared on the function.
+/// Arguments passed on the AVM stack will be conformed to the set of method
+/// parameters declared on the function.
 ///
 /// It is the caller's responsibility to ensure that the `receiver` passed
 /// to this method is not Value::Null or Value::Undefined.
 #[allow(clippy::too_many_arguments)]
-pub fn exec<'gc>(
+pub fn exec_stack<'gc>(
     method: Method<'gc>,
     scope: ScopeChain<'gc>,
     receiver: Value<'gc>,
     bound_superclass: Option<ClassObject<'gc>>,
     bound_class: Option<Class<'gc>>,
-    mut arguments: &[Value<'gc>],
+    argc: usize,
     activation: &mut Activation<'_, 'gc>,
     callee: Value<'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     let ret = match method {
         Method::Native(bm) => {
+            let arguments = activation.avm2().pop_args(argc as u32);
+
             let caller_domain = activation.caller_domain();
             let caller_movie = activation.caller_movie();
             let mut activation = Activation::from_builtin(
@@ -167,13 +198,12 @@ pub fn exec<'gc>(
             );
 
             if arguments.len() > bm.signature.len() && !bm.is_variadic {
-                return Err(format!(
-                    "Attempted to call {:?} with {} arguments (more than {} is prohibited)",
-                    bm.name,
+                return Err(make_mismatch_error(
+                    &mut activation,
+                    method,
                     arguments.len(),
-                    bm.signature.len()
-                )
-                .into());
+                    bound_class,
+                ));
             }
 
             if bm.resolved_signature.read().is_none() {
@@ -185,7 +215,7 @@ pub fn exec<'gc>(
 
             let arguments = activation.resolve_parameters(
                 method,
-                arguments,
+                &arguments,
                 resolved_signature,
                 bound_class,
             )?;
@@ -208,13 +238,6 @@ pub fn exec<'gc>(
             (bm.method)(&mut activation, receiver, &arguments)
         }
         Method::Bytecode(bm) => {
-            if bm.is_unchecked() {
-                let max_args = bm.signature().len();
-                if arguments.len() > max_args && !bm.is_variadic() {
-                    arguments = &arguments[..max_args];
-                }
-            }
-
             // This used to be a one step called Activation::from_method,
             // but avoiding moving an Activation around helps perf
             let mut activation = Activation::from_nothing(activation.context);
@@ -222,7 +245,7 @@ pub fn exec<'gc>(
                 bm,
                 scope,
                 receiver,
-                arguments,
+                argc,
                 bound_superclass,
                 bound_class,
                 callee,

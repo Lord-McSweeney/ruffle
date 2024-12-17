@@ -277,10 +277,9 @@ impl<'gc> BytecodeMethod<'gc> {
 
     /// Determine if a given method is unchecked.
     ///
-    /// A method is unchecked if all of the following are true:
+    /// A method is unchecked if both of the following are true:
     ///
     ///  * The method was declared as a free-standing function
-    ///  * The function does not use rest-parameters
     ///  * The function's parameters have no declared types or default values
     pub fn is_unchecked(&self) -> bool {
         if !self.is_function {
@@ -293,7 +292,7 @@ impl<'gc> BytecodeMethod<'gc> {
             }
         }
 
-        !self.method().flags.contains(AbcMethodFlags::NEED_REST)
+        true
     }
 
     /// Initialize and return the activation class object, if the method requires it.
