@@ -1,5 +1,5 @@
 use crate::avm2::{Object as Avm2Object, Value as Avm2Value};
-use crate::context::RenderContext;
+use crate::context::{RenderContext, UpdateContext};
 use crate::display_object::{DisplayObject, DisplayObjectWeak, TDisplayObject};
 use bitflags::bitflags;
 use gc_arena::{Collect, GcCell, Mutation};
@@ -283,12 +283,12 @@ impl<'gc> BitmapDataWrapper<'gc> {
 
     /// Clones the underlying data, producing a new `BitmapData`
     /// that has no GPU texture or associated display objects
-    pub fn clone_data(&self, renderer: &mut dyn RenderBackend) -> BitmapData<'gc> {
+    pub fn clone_data(&self, context: &mut UpdateContext<'gc>) -> Self {
         // Sync from the GPU to CPU, since our new BitmapData starts out
         // with no GPU texture
-        let data = self.sync(renderer);
+        let data = self.sync(context.renderer);
         let data = data.read();
-        BitmapData {
+        let bitmap_data = BitmapData {
             pixels: data.pixels.clone(),
             width: data.width,
             height: data.height,
@@ -301,7 +301,9 @@ impl<'gc> BitmapDataWrapper<'gc> {
             dirty_state: DirtyState::Clean,
             #[cfg(feature = "egui")]
             egui_texture: Default::default(),
-        }
+        };
+
+        BitmapDataWrapper::new(context.gc(), bitmap_data)
     }
 
     // Provides access to the underlying `BitmapData`. If a GPU -> CPU sync

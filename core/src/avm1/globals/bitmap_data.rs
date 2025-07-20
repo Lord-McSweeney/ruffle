@@ -56,7 +56,7 @@ const OBJECT_DECLS: &[Declaration] = declare_properties! {
 
 fn new_bitmap_data<'gc>(
     proto: Option<Value<'gc>>,
-    bitmap_data: BitmapData<'gc>,
+    bitmap_data: BitmapDataWrapper<'gc>,
     activation: &mut Activation<'_, 'gc>,
 ) -> Object<'gc> {
     let gc_context = activation.gc();
@@ -72,10 +72,7 @@ fn new_bitmap_data<'gc>(
             Attribute::DONT_ENUM | Attribute::DONT_DELETE,
         );
     }
-    object.set_native(
-        gc_context,
-        NativeObject::BitmapData(BitmapDataWrapper::new(gc_context, bitmap_data)),
-    );
+    object.set_native(gc_context, NativeObject::BitmapData(bitmap_data));
     object
 }
 
@@ -411,7 +408,7 @@ fn clone<'gc>(
         if !bitmap_data.disposed() {
             return Ok(new_bitmap_data(
                 this.get_local_stored(istr!("__proto__"), activation, false),
-                bitmap_data.clone_data(activation.context.renderer),
+                bitmap_data.clone_data(activation.context),
                 activation,
             )
             .into());
@@ -1499,11 +1496,7 @@ fn compare<'gc>(
         return Ok(DIFFERENT_HEIGHTS.into());
     }
 
-    match operations::compare(
-        activation.context.renderer,
-        this_bitmap_data,
-        other_bitmap_data,
-    ) {
+    match operations::compare(activation.context, this_bitmap_data, other_bitmap_data) {
         Some(bitmap_data) => Ok(new_bitmap_data(
             this.get_local_stored(istr!("__proto__"), activation, false),
             bitmap_data,
@@ -1551,7 +1544,7 @@ fn load_bitmap<'gc>(
     );
     Ok(new_bitmap_data(
         this.get_local_stored(istr!("prototype"), activation, false),
-        bitmap_data,
+        BitmapDataWrapper::new(activation.gc(), bitmap_data),
         activation,
     )
     .into())

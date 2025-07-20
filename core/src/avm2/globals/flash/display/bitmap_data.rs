@@ -1238,14 +1238,11 @@ pub fn clone<'gc>(
 
     if let Some(bitmap_data) = this.as_bitmap_data() {
         if !bitmap_data.disposed() {
-            let new_bitmap_data = bitmap_data.clone_data(activation.context.renderer);
+            let new_bitmap_data = bitmap_data.clone_data(activation.context);
 
             let class = activation.avm2().classes().bitmapdata;
-            let new_bitmap_data_object = BitmapDataObject::from_bitmap_data_internal(
-                activation,
-                BitmapDataWrapper::new(activation.gc(), new_bitmap_data),
-                class,
-            )?;
+            let new_bitmap_data_object =
+                BitmapDataObject::from_bitmap_data_internal(activation, new_bitmap_data, class)?;
 
             return Ok(new_bitmap_data_object.into());
         }
@@ -1517,19 +1514,10 @@ pub fn compare<'gc>(
         return Ok(DIFFERENT_HEIGHTS.into());
     }
 
-    match operations::compare(
-        activation.context.renderer,
-        this_bitmap_data,
-        other_bitmap_data,
-    ) {
+    match operations::compare(activation.context, this_bitmap_data, other_bitmap_data) {
         Some(bitmap_data) => {
             let class = activation.avm2().classes().bitmapdata;
-            Ok(BitmapDataObject::from_bitmap_data_internal(
-                activation,
-                BitmapDataWrapper::new(activation.gc(), bitmap_data),
-                class,
-            )?
-            .into())
+            Ok(BitmapDataObject::from_bitmap_data_internal(activation, bitmap_data, class)?.into())
         }
         None => Ok(EQUIVALENT.into()),
     }

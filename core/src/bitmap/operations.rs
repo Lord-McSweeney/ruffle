@@ -750,18 +750,18 @@ pub fn palette_map<'gc>(
 /// Compare two BitmapData objects.
 /// Returns `None` if the bitmaps are equivalent.
 pub fn compare<'gc>(
-    renderer: &mut dyn RenderBackend,
+    context: &mut UpdateContext<'gc>,
     left: BitmapDataWrapper<'gc>,
     right: BitmapDataWrapper<'gc>,
-) -> Option<BitmapData<'gc>> {
+) -> Option<BitmapDataWrapper<'gc>> {
     // This function expects that the two bitmaps have the same dimensions.
     // TODO: Relax this assumption and return a special value instead?
     debug_assert_eq!(left.width(), right.width());
     debug_assert_eq!(left.height(), right.height());
 
-    let left = left.sync(renderer);
+    let left = left.sync(context.renderer);
     let left = left.read();
-    let right = right.sync(renderer);
+    let right = right.sync(context.renderer);
     let right = right.read();
 
     let mut different = false;
@@ -791,12 +791,9 @@ pub fn compare<'gc>(
         .collect();
 
     if different {
-        Some(BitmapData::new_with_pixels(
-            left.width(),
-            left.height(),
-            true,
-            pixels,
-        ))
+        let bitmap_data = BitmapData::new_with_pixels(left.width(), left.height(), true, pixels);
+
+        Some(BitmapDataWrapper::new(context.gc(), bitmap_data))
     } else {
         None
     }
