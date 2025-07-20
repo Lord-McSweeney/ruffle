@@ -10,7 +10,7 @@ use ruffle_render::bitmap::{
 use ruffle_render::commands::CommandHandler;
 use ruffle_wstr::WStr;
 
-use std::cell::Ref;
+use std::cell::{Ref, RefMut};
 use std::fmt::Debug;
 use std::ops::Range;
 use swf::{Rectangle, Twips};
@@ -337,8 +337,7 @@ impl<'gc> BitmapDataWrapper<'gc> {
     pub fn clone_data(&self, context: &mut UpdateContext<'gc>) -> Self {
         // Sync from the GPU to CPU, since our new BitmapData starts out
         // with no GPU texture
-        let data = self.sync(context.renderer);
-        let data = data.read();
+        let data = self.sync_read(context.renderer);
         let bitmap_data = BitmapData {
             pixels: data.pixels.clone(),
             width: data.width,
@@ -357,9 +356,8 @@ impl<'gc> BitmapDataWrapper<'gc> {
         BitmapDataWrapper(GcCell::new(context.gc(), bitmap_data))
     }
 
-    // Provides access to the underlying `BitmapData`. If a GPU -> CPU sync
-    // is in progress, waits for it to complete
-    pub fn sync(&self, renderer: &mut dyn RenderBackend) -> GcCell<'gc, BitmapData<'gc>> {
+    // If a GPU -> CPU sync is in progress, waits for it to complete
+    pub fn sync(&self, renderer: &mut dyn RenderBackend) {
         // SAFETY: The only fields that can store gc pointers are `avm2_object` and `dirty_callbacks`,
         // which we don't update here. Ideally, we would refactor this so that
         // `BitmapData` doesn't contain any gc pointers, allowing us to use a normal
@@ -381,7 +379,24 @@ impl<'gc> BitmapDataWrapper<'gc> {
             }
             old_state => write.dirty_state = old_state,
         }
-        self.0
+    }
+
+    /// Provides immutable access to the underlying `BitmapData`. If the GPU
+    /// pixels are dirty, they will be synced to the CPU.
+    pub fn sync_read(&self, renderer: &mut dyn RenderBackend) -> Ref<'_, BitmapData<'gc>> {
+        self.sync(renderer);
+        self.0.read()
+    }
+
+    /// Provides mutable access to the underlying `BitmapData`. If the GPU
+    /// pixels are dirty, they will be synced to the CPU.
+    pub fn sync_write(
+        &self,
+        mc: &Mutation<'gc>,
+        renderer: &mut dyn RenderBackend,
+    ) -> RefMut<'_, BitmapData<'gc>> {
+        self.sync(renderer);
+        self.0.write(mc)
     }
 
     /// Provides access to the underlying `BitmapHandle`.
@@ -400,7 +415,7 @@ impl<'gc> BitmapDataWrapper<'gc> {
         bitmap_data.bitmap_handle(renderer).unwrap()
     }
 
-    /// Provides access to the underlying `BitmapData`.
+    /// Provides mutable access to the underlying `BitmapData`.
     /// This should only be used when you will be overwriting the entire
     /// `pixels` vec without reading from it. Cancels any in-progress GPU -> CPU sync.
     /// This does not sync from cpu to gpu.
@@ -408,7 +423,7 @@ impl<'gc> BitmapDataWrapper<'gc> {
     pub fn overwrite_cpu_pixels_from_gpu(
         &self,
         mc: &Mutation<'gc>,
-    ) -> (GcCell<'gc, BitmapData<'gc>>, Option<PixelRegion>) {
+    ) -> (RefMut<'_, BitmapData<'gc>>, Option<PixelRegion>) {
         let mut write = self.0.write(mc);
         let dirty_rect = match write.dirty_state {
             DirtyState::GpuModified(_, rect) => {
@@ -419,7 +434,7 @@ impl<'gc> BitmapDataWrapper<'gc> {
         };
         #[cfg(feature = "egui")]
         write.egui_texture.borrow_mut().take();
-        (self.0, dirty_rect)
+        (write, dirty_rect)
     }
 
     /// Provides read access to the BitmapData pixels.

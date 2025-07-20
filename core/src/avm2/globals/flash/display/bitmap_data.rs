@@ -878,7 +878,7 @@ pub fn hit_test<'gc>(
                 .as_display_object()
                 .and_then(|dobj| dobj.as_bitmap())
             {
-                let other_bmd = bitmap.bitmap_data_wrapper();
+                let other_bmd = bitmap.bitmap_data();
                 other_bmd.check_valid(activation)?;
                 let second_point = args.get_object(activation, 3, "secondBitmapDataPoint")?;
                 let second_point = (

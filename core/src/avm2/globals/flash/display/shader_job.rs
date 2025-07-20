@@ -211,10 +211,10 @@ pub fn start<'gc>(
     let output_height = this.get_slot(shader_job_slots::_HEIGHT).as_u32();
 
     let pixel_bender_target = if let Some(bitmap) = target.as_bitmap_data() {
-        let target_bitmap = bitmap.sync(activation.context.renderer);
         // Perform both a GPU->CPU and CPU->GPU sync before writing to it.
         // FIXME - are both necessary?
-        let mut target_bitmap_data = target_bitmap.write(activation.gc());
+        let mut target_bitmap_data =
+            bitmap.sync_write(activation.gc(), activation.context.renderer);
         target_bitmap_data.update_dirty_texture(activation.context.renderer);
 
         PixelBenderTarget::Bitmap(
@@ -247,14 +247,13 @@ pub fn start<'gc>(
 
     match output {
         PixelBenderOutput::Bitmap(sync_handle) => {
-            let target_bitmap = target
-                .as_bitmap_data()
-                .unwrap()
-                .sync(activation.context.renderer);
-            let mut target_bitmap_data = target_bitmap.write(activation.gc());
-            let width = target_bitmap_data.width();
-            let height = target_bitmap_data.height();
-            target_bitmap_data.set_gpu_dirty(
+            let target_bmd = target.as_bitmap_data().unwrap();
+            let mut target_write =
+                target_bmd.sync_write(activation.gc(), activation.context.renderer);
+
+            let width = target_write.width();
+            let height = target_write.height();
+            target_write.set_gpu_dirty(
                 activation.gc(),
                 sync_handle,
                 PixelRegion::for_whole_size(width, height),

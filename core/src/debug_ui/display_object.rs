@@ -730,8 +730,8 @@ impl DisplayObjectWindow {
         Grid::new(ui.id().with("bitmap"))
             .num_columns(2)
             .show(ui, |ui| {
-                let bitmap_data = object.bitmap_data_wrapper().sync(context.renderer);
-                let bitmap_data = bitmap_data.read();
+                let bitmap_data = object.bitmap_data();
+                let bitmap_data = bitmap_data.sync_read(context.renderer);
 
                 ui.label("Width");
                 ui.label(format!("{} px", bitmap_data.width()));
@@ -775,8 +775,8 @@ impl DisplayObjectWindow {
         CollapsingHeader::new("Preview")
             .id_salt(ui.id().with("bitmap-preview"))
             .show(ui, |ui| {
-                let bitmap_data = object.bitmap_data_wrapper().sync(context.renderer);
-                let bitmap_data = bitmap_data.read();
+                let bitmap_data = object.bitmap_data();
+                let bitmap_data = bitmap_data.sync_read(context.renderer);
 
                 if bitmap_data.width() == 0 || bitmap_data.height() == 0 {
                     ui.weak("(no pixels)");

@@ -46,14 +46,13 @@ pub fn fill_rect<'gc>(
 
     let is_full = rect.width() == target.width() && rect.height() == target.height();
 
-    let target = if is_full {
+    let mut write = if is_full {
         // If we're filling the whole region, we can discard the gpu data
         target.overwrite_cpu_pixels_from_gpu(mc).0
     } else {
         // If we're filling a partial region, finish any gpu->cpu sync
-        target.sync(renderer)
+        target.sync_write(mc, renderer)
     };
-    let mut write = target.write(mc);
     let color = Color::from(color).to_premultiplied_alpha(write.transparency());
 
     if is_full {
@@ -77,8 +76,7 @@ pub fn set_pixel32<'gc>(
     if x >= target.width() || y >= target.height() {
         return;
     }
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
     let transparency = write.transparency();
     write.set_pixel32_raw(
         x,
@@ -112,8 +110,7 @@ pub fn set_pixel<'gc>(
     if x >= target.width() || y >= target.height() {
         return;
     }
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
 
     if write.transparency() {
         let current_alpha = write.get_pixel32_raw(x, y).alpha();
@@ -151,8 +148,7 @@ pub fn flood_fill<'gc>(
     if x >= target.width() || y >= target.height() {
         return;
     }
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
     let expected_color = write.get_pixel32_raw(x, y);
     let replace_color = Color::from(color).to_premultiplied_alpha(write.transparency());
 
@@ -197,8 +193,7 @@ pub fn noise<'gc>(
     channel_options: ChannelOptions,
     gray_scale: bool,
 ) {
-    let (target, _) = target.overwrite_cpu_pixels_from_gpu(mc);
-    let mut write = target.write(mc);
+    let (mut write, _) = target.overwrite_cpu_pixels_from_gpu(mc);
 
     let true_seed = if seed <= 0 {
         (-seed + 1) as u32
@@ -267,8 +262,7 @@ pub fn perlin_noise<'gc>(
     grayscale: bool,
     offsets: Vec<(f64, f64)>, // must contain `num_octaves` values
 ) {
-    let (target, _) = target.overwrite_cpu_pixels_from_gpu(mc);
-    let mut write = target.write(mc);
+    let (mut write, _) = target.overwrite_cpu_pixels_from_gpu(mc);
 
     let turb = Turbulence::from_seed(random_seed);
 
@@ -418,8 +412,7 @@ pub fn copy_channel<'gc>(
         Some(source_bitmap.read_area(source_region, renderer))
     };
 
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
 
     for y in 0..dest_region.height().min(source_region.height()) {
         for x in 0..dest_region.width().min(source_region.width()) {
@@ -504,8 +497,7 @@ pub fn color_transform<'gc>(
         return;
     }
 
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
     let transparency = write.transparency();
 
     for y in y_min..y_max {
@@ -573,8 +565,7 @@ pub fn threshold<'gc>(
         Some(source_bitmap.read_area(source_region, renderer))
     };
 
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
 
     // Check each pixel
     for y in 0..dest_region.height() {
@@ -664,8 +655,7 @@ pub fn scroll<'gc>(
     let x_to = if reverse_x { -1 } else { width.min(width - x) };
     let dx = if reverse_x { -1 } else { 1 };
 
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
 
     let mut src_y = y_from;
     while src_y != y_to {
@@ -714,8 +704,7 @@ pub fn palette_map<'gc>(
         Some(source_bitmap.read_area(source_region, renderer))
     };
 
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
 
     for y in 0..dest_region.height() {
         for x in 0..dest_region.width() {
@@ -759,10 +748,8 @@ pub fn compare<'gc>(
     debug_assert_eq!(left.width(), right.width());
     debug_assert_eq!(left.height(), right.height());
 
-    let left = left.sync(context.renderer);
-    let left = left.read();
-    let right = right.sync(context.renderer);
-    let right = right.read();
+    let left = left.sync_read(context.renderer);
+    let right = right.sync_read(context.renderer);
 
     let mut different = false;
     let pixels = left
@@ -916,8 +903,7 @@ pub fn color_bounds_rect(
     let mut min_y = target.height();
     let mut max_y = 0;
 
-    let target = target.sync(renderer);
-    let read = target.read();
+    let read = target.sync_read(renderer);
 
     for x in 0..read.width() {
         for y in 0..read.height() {
@@ -982,8 +968,7 @@ pub fn merge<'gc>(
         Some(source_bitmap.read_area(source_region, renderer))
     };
 
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
 
     for y in 0..dest_region.height() {
         for x in 0..dest_region.width() {
@@ -1123,8 +1108,7 @@ pub fn copy_pixels_with_alpha_source<'gc>(
         Some(alpha_bitmap.read_area(alpha_region, context.renderer))
     };
 
-    let target = target.sync(context.renderer);
-    let mut write = target.write(context.gc());
+    let mut write = target.sync_write(context.gc(), context.renderer);
 
     for src_y in src_min_y..(src_min_y + src_height) {
         for src_x in src_min_x..(src_min_x + src_width) {
@@ -1260,8 +1244,7 @@ pub fn apply_filter<'gc>(
     }
 
     let source_handle = source.bitmap_handle(context.gc(), context.renderer);
-    let (target, _) = target.overwrite_cpu_pixels_from_gpu(context.gc());
-    let mut write = target.write(context.gc());
+    let (mut write, _) = target.overwrite_cpu_pixels_from_gpu(context.gc());
     let dest = write.bitmap_handle(context.renderer).unwrap();
 
     let sync_handle = context.renderer.apply_filter(
@@ -1283,7 +1266,7 @@ pub fn apply_filter<'gc>(
 
 #[allow(clippy::too_many_arguments)]
 fn copy_on_cpu<'gc>(
-    context: &Mutation<'gc>,
+    mc: &Mutation<'gc>,
     renderer: &mut dyn RenderBackend,
     source: BitmapDataWrapper<'gc>,
     dest: BitmapDataWrapper<'gc>,
@@ -1301,8 +1284,7 @@ fn copy_on_cpu<'gc>(
     }
 
     if source.ptr_eq(dest) {
-        let dest = dest.sync(renderer);
-        let mut write = dest.write(context);
+        let mut write = dest.sync_write(mc, renderer);
 
         for y in 0..dest_region.height() {
             for x in 0..dest_region.width() {
@@ -1317,10 +1299,9 @@ fn copy_on_cpu<'gc>(
             }
         }
 
-        write.set_cpu_dirty(context, dest_region);
+        write.set_cpu_dirty(mc, dest_region);
     } else {
-        let dest = dest.sync(renderer);
-        let mut dest_write = dest.write(context);
+        let mut dest_write = dest.sync_write(mc, renderer);
         let source_read = source.read_area(source_region, renderer);
 
         if !blend && (dest_write.transparency() || !source_read.transparency()) {
@@ -1374,7 +1355,7 @@ fn copy_on_cpu<'gc>(
             }
         }
 
-        dest_write.set_cpu_dirty(context, dest_region);
+        dest_write.set_cpu_dirty(mc, dest_region);
     }
 }
 
@@ -1388,8 +1369,7 @@ fn blend_and_transform<'gc>(
     transform: &ColorTransform,
 ) {
     if source.ptr_eq(dest) {
-        let dest = dest.sync(context.renderer);
-        let mut write = dest.write(context.gc());
+        let mut write = dest.sync_write(context.gc(), context.renderer);
 
         for y in 0..dest_region.height() {
             for x in 0..dest_region.width() {
@@ -1409,8 +1389,7 @@ fn blend_and_transform<'gc>(
 
         write.set_cpu_dirty(context.gc(), dest_region);
     } else {
-        let dest = dest.sync(context.renderer);
-        let mut dest_write = dest.write(context.gc());
+        let mut dest_write = dest.sync_write(context.gc(), context.renderer);
         let source_read = source.read_area(source_region, context.renderer);
         let opaque = !dest_write.transparency();
 
@@ -1602,8 +1581,7 @@ pub fn draw<'gc>(
         commands
     };
 
-    let (target, include_dirty_area) = target.overwrite_cpu_pixels_from_gpu(context.gc());
-    let mut write = target.write(context.gc());
+    let (mut write, include_dirty_area) = target.overwrite_cpu_pixels_from_gpu(context.gc());
     // If we have another dirty area to preserve, expand this to include it
     if let Some(old) = include_dirty_area {
         dirty_region.union(old);
@@ -1670,8 +1648,7 @@ pub fn set_vector<'gc>(
 
     let region = PixelRegion::for_region(x_min, y_min, width as u32, height as u32);
 
-    let bitmap_data = target.sync(activation.context.renderer);
-    let mut bitmap_data = bitmap_data.write(activation.gc());
+    let mut bitmap_data = target.sync_write(activation.gc(), activation.context.renderer);
     let transparency = bitmap_data.transparency();
     let mut iter = vector.iter();
     bitmap_data.set_cpu_dirty(activation.gc(), region);
@@ -1732,14 +1709,13 @@ pub fn set_pixels_from_byte_array<'gc>(
     region.clamp(target.width(), target.height());
     let transparency = target.transparency();
 
-    let target = if region.width() == target.width() && region.height() == target.height() {
+    let mut write = if region.width() == target.width() && region.height() == target.height() {
         // If we're filling the whole region, we can discard the gpu data
         target.overwrite_cpu_pixels_from_gpu(mc).0
     } else {
         // If we're filling a partial region, finish any gpu->cpu sync
-        target.sync(renderer)
+        target.sync_write(mc, renderer)
     };
-    let mut write = target.write(mc);
 
     if region.width() > 0 && region.height() > 0 {
         for y in region.y_min..region.y_max {
@@ -1913,8 +1889,7 @@ pub fn pixel_dissolve<'gc>(
 
     let num_pixels = num_pixels.min(final_pixel_sequence_length as i32);
 
-    let target = target.sync(renderer);
-    let mut write = target.write(mc);
+    let mut write = target.sync_write(mc, renderer);
 
     // For compliance with the official Flash Player, we always write the pixel at (0, 0).
     write_pixel(

@@ -215,7 +215,7 @@ impl<'gc> Bitmap<'gc> {
         self.0.pixel_snapping.set(value);
     }
 
-    pub fn bitmap_data_wrapper(self) -> BitmapDataWrapper<'gc> {
+    pub fn bitmap_data(self) -> BitmapDataWrapper<'gc> {
         self.0.bitmap_data.get()
     }
 
