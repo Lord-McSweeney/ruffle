@@ -233,8 +233,8 @@ bitflags! {
 /// with the Bitmap/BitmapData object at all for some time.
 ///
 /// There are three ways that this type gets used:
-/// 1. Blocking on the current GPU->CPU sync via the `sync` method,
-///    and obtainng a `GcCell<'gc, BitmapData<'gc>>` (or implicily through `as_bitmap_data`).
+/// 1. Blocking on the current GPU->CPU sync via the `sync_read` or `sync_write` methods,
+///    and obtainng a `Ref(Mut)<'_, BitmapData<'gc>>` (or implicily through `as_bitmap_data`).
 ///    This is done for the vast majority of BitmapData AS2/AS3 methods, as they need to access CPU-side pixels.
 /// 2. Ignoring the current GPU->CPU sync state. This is done by the `render` method defined on this type,
 ///    since rendering only uses GPU-side data, and ignores CPU-side pixels entirely.
