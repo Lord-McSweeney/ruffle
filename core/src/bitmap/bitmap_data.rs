@@ -454,7 +454,11 @@ impl<'gc> BitmapDataWrapper<'gc> {
     }
 
     pub fn object2(&self) -> Avm2Value<'gc> {
-        self.0.read().object2()
+        self.0
+            .read()
+            .avm2_object
+            .map(|o| o.into())
+            .unwrap_or(Avm2Value::Null)
     }
 
     pub fn disposed(&self) -> bool {
@@ -486,7 +490,7 @@ impl<'gc> BitmapDataWrapper<'gc> {
     }
 
     pub fn init_object2(&self, mc: &Mutation<'gc>, object: Avm2Object<'gc>) {
-        self.0.write(mc).avm2_object = Some(object)
+        self.0.write(mc).avm2_object = Some(object);
     }
 
     pub fn remove_display_object(&self, mc: &Mutation<'gc>, callback: DisplayObjectWeak<'gc>) {
@@ -773,16 +777,6 @@ impl<'gc> BitmapData<'gc> {
                 object.invalidate_cached_bitmap(gc_context);
             }
         }
-    }
-
-    pub fn object2(&self) -> Avm2Value<'gc> {
-        self.avm2_object
-            .map(|o| o.into())
-            .unwrap_or(Avm2Value::Null)
-    }
-
-    pub fn init_object2(&mut self, object: Avm2Object<'gc>) {
-        self.avm2_object = Some(object)
     }
 }
 
