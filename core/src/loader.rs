@@ -34,7 +34,7 @@ use crate::vminterface::Instantiator;
 use chardetng::EncodingDetector;
 use encoding_rs::{UTF_8, WINDOWS_1252};
 use gc_arena::collect::Trace;
-use gc_arena::{Collect, GcCell};
+use gc_arena::Collect;
 use indexmap::IndexMap;
 use ruffle_macros::istr;
 use ruffle_render::utils::{determine_jpeg_tag_format, JpegTagFormat};
@@ -2192,8 +2192,7 @@ impl<'gc> Loader<'gc> {
                     transparency,
                     bitmap.as_colors().map(Color::from).collect(),
                 );
-                let bitmapdata_wrapper =
-                    BitmapDataWrapper::new(GcCell::new(activation.gc(), bitmap_data));
+                let bitmapdata_wrapper = BitmapDataWrapper::new(activation.gc(), bitmap_data);
                 let bitmapdata_class = activation.context.avm2.classes().bitmapdata;
                 let bitmapdata_avm2 = BitmapDataObject::from_bitmap_data_internal(
                     &mut activation,

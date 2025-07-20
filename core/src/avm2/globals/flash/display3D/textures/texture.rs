@@ -1,5 +1,3 @@
-use gc_arena::GcCell;
-
 use ruffle_render::backend::Context3DTextureFormat;
 
 use super::atf_jpegxr::do_compressed_upload;
@@ -51,7 +49,7 @@ pub fn do_copy<'gc>(
                 .collect();
 
             let bitmap_data = BitmapData::new_with_pixels(width, height, true, colors);
-            BitmapDataWrapper::new(GcCell::new(activation.gc(), bitmap_data))
+            BitmapDataWrapper::new(activation.gc(), bitmap_data)
         }
         _ => {
             tracing::warn!(

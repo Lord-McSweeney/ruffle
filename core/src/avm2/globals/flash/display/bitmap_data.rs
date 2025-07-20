@@ -25,7 +25,6 @@ use crate::character::{Character, CompressedBitmap};
 use crate::display_object::TDisplayObject;
 use crate::ecma_conversions::round_to_even;
 use crate::swf::BlendMode;
-use gc_arena::GcCell;
 use ruffle_render::filters::Filter;
 use ruffle_render::transform::Transform;
 use std::str::FromStr;
@@ -74,19 +73,17 @@ pub fn fill_bitmap_data_from_symbol<'gc>(
     bd: &CompressedBitmap,
 ) -> BitmapDataWrapper<'gc> {
     let bitmap = bd.decode().expect("Failed to decode BitmapData");
-    let new_bitmap_data = GcCell::new(
-        activation.gc(),
-        BitmapData::new_with_pixels(
-            bitmap.width(),
-            bitmap.height(),
-            true,
-            bitmap
-                .as_colors()
-                .map(crate::bitmap::bitmap_data::Color::from)
-                .collect(),
-        ),
+    let new_bitmap_data = BitmapData::new_with_pixels(
+        bitmap.width(),
+        bitmap.height(),
+        true,
+        bitmap
+            .as_colors()
+            .map(crate::bitmap::bitmap_data::Color::from)
+            .collect(),
     );
-    BitmapDataWrapper::new(new_bitmap_data)
+
+    BitmapDataWrapper::new(activation.gc(), new_bitmap_data)
 }
 
 /// Implements `flash.display.BitmapData`'s 'init' method (invoked from the AS3 constructor)
@@ -141,7 +138,7 @@ pub fn init<'gc>(
         }
 
         let new_bitmap_data = BitmapData::new(width, height, transparency, fill_color);
-        BitmapDataWrapper::new(GcCell::new(activation.gc(), new_bitmap_data))
+        BitmapDataWrapper::new(activation.gc(), new_bitmap_data)
     };
 
     new_bitmap_data.init_object2(activation.gc(), this);
@@ -1246,7 +1243,7 @@ pub fn clone<'gc>(
             let class = activation.avm2().classes().bitmapdata;
             let new_bitmap_data_object = BitmapDataObject::from_bitmap_data_internal(
                 activation,
-                BitmapDataWrapper::new(GcCell::new(activation.gc(), new_bitmap_data)),
+                BitmapDataWrapper::new(activation.gc(), new_bitmap_data),
                 class,
             )?;
 
@@ -1529,7 +1526,7 @@ pub fn compare<'gc>(
             let class = activation.avm2().classes().bitmapdata;
             Ok(BitmapDataObject::from_bitmap_data_internal(
                 activation,
-                BitmapDataWrapper::new(GcCell::new(activation.gc(), bitmap_data)),
+                BitmapDataWrapper::new(activation.gc(), bitmap_data),
                 class,
             )?
             .into())

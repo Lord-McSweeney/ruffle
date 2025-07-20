@@ -254,8 +254,8 @@ bitflags! {
 pub struct BitmapDataWrapper<'gc>(GcCell<'gc, BitmapData<'gc>>);
 
 impl<'gc> BitmapDataWrapper<'gc> {
-    pub fn new(data: GcCell<'gc, BitmapData<'gc>>) -> Self {
-        BitmapDataWrapper(data)
+    pub fn new(mc: &Mutation<'gc>, data: BitmapData<'gc>) -> Self {
+        BitmapDataWrapper(GcCell::new(mc, data))
     }
 
     // Creates a dummy BitmapData with no pixels or handle, marked as disposed.

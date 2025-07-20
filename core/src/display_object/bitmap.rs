@@ -196,7 +196,7 @@ impl<'gc> Bitmap<'gc> {
         Self::new_with_bitmap_data(
             mc,
             id,
-            BitmapDataWrapper::new(GcCell::new(mc, bitmap_data)),
+            BitmapDataWrapper::new(mc, bitmap_data),
             smoothing,
             &movie,
         )

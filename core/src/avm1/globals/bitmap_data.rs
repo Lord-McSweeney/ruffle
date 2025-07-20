@@ -16,7 +16,6 @@ use crate::display_object::DisplayObject;
 use crate::string::StringContext;
 use crate::swf::BlendMode;
 use crate::{avm1_stub, avm_error};
-use gc_arena::GcCell;
 use ruffle_macros::istr;
 use ruffle_render::transform::Transform;
 
@@ -75,7 +74,7 @@ fn new_bitmap_data<'gc>(
     }
     object.set_native(
         gc_context,
-        NativeObject::BitmapData(BitmapDataWrapper::new(GcCell::new(gc_context, bitmap_data))),
+        NativeObject::BitmapData(BitmapDataWrapper::new(gc_context, bitmap_data)),
     );
     object
 }
@@ -109,10 +108,7 @@ fn constructor<'gc>(
     let bitmap_data = BitmapData::new(width, height, transparency, fill_color);
     this.set_native(
         activation.gc(),
-        NativeObject::BitmapData(BitmapDataWrapper::new(GcCell::new(
-            activation.gc(),
-            bitmap_data,
-        ))),
+        NativeObject::BitmapData(BitmapDataWrapper::new(activation.gc(), bitmap_data)),
     );
     Ok(this.into())
 }
