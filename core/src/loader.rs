@@ -17,8 +17,7 @@ use crate::avm2::{
 use crate::avm2_stub_method_context;
 use crate::backend::navigator::{ErrorResponse, OwnedFuture, Request, SuccessResponse};
 use crate::backend::ui::DialogResultFuture;
-use crate::bitmap::bitmap_data::Color;
-use crate::bitmap::bitmap_data::{BitmapData, BitmapDataWrapper};
+use crate::bitmap::bitmap_data::{BitmapDataWrapper, Color};
 use crate::context::{ActionQueue, ActionType, UpdateContext};
 use crate::display_object::{
     DisplayObject, MovieClip, TDisplayObject, TDisplayObjectContainer, TInteractiveObject,
@@ -2186,13 +2185,13 @@ impl<'gc> Loader<'gc> {
                 let bitmap = ruffle_render::utils::decode_define_bits_jpeg(data, None)?;
 
                 let transparency = true;
-                let bitmap_data = BitmapData::new_with_pixels(
+                let bitmapdata_wrapper = BitmapDataWrapper::new_with_pixels(
+                    activation.gc(),
                     bitmap.width(),
                     bitmap.height(),
                     transparency,
                     bitmap.as_colors().map(Color::from).collect(),
                 );
-                let bitmapdata_wrapper = BitmapDataWrapper::new(activation.gc(), bitmap_data);
                 let bitmapdata_class = activation.context.avm2.classes().bitmapdata;
                 let bitmapdata_avm2 = BitmapDataObject::from_bitmap_data_internal(
                     &mut activation,

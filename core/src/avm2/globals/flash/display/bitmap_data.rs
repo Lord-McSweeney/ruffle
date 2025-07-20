@@ -17,9 +17,8 @@ use crate::avm2::vector::VectorStorage;
 use crate::avm2::Error;
 use crate::avm2_stub_method;
 use crate::bitmap::bitmap_data::{
-    BitmapData, BitmapDataWrapper, ChannelOptions, ThresholdOperation,
+    BitmapDataDrawError, BitmapDataWrapper, ChannelOptions, IBitmapDrawable, ThresholdOperation,
 };
-use crate::bitmap::bitmap_data::{BitmapDataDrawError, IBitmapDrawable};
 use crate::bitmap::{is_size_valid, operations};
 use crate::character::{Character, CompressedBitmap};
 use crate::display_object::TDisplayObject;
@@ -73,7 +72,9 @@ pub fn fill_bitmap_data_from_symbol<'gc>(
     bd: &CompressedBitmap,
 ) -> BitmapDataWrapper<'gc> {
     let bitmap = bd.decode().expect("Failed to decode BitmapData");
-    let new_bitmap_data = BitmapData::new_with_pixels(
+
+    BitmapDataWrapper::new_with_pixels(
+        activation.gc(),
         bitmap.width(),
         bitmap.height(),
         true,
@@ -81,9 +82,7 @@ pub fn fill_bitmap_data_from_symbol<'gc>(
             .as_colors()
             .map(crate::bitmap::bitmap_data::Color::from)
             .collect(),
-    );
-
-    BitmapDataWrapper::new(activation.gc(), new_bitmap_data)
+    )
 }
 
 /// Implements `flash.display.BitmapData`'s 'init' method (invoked from the AS3 constructor)
@@ -137,8 +136,7 @@ pub fn init<'gc>(
             )?));
         }
 
-        let new_bitmap_data = BitmapData::new(width, height, transparency, fill_color);
-        BitmapDataWrapper::new(activation.gc(), new_bitmap_data)
+        BitmapDataWrapper::new(activation.gc(), width, height, transparency, fill_color)
     };
 
     new_bitmap_data.init_object2(activation.gc(), this);

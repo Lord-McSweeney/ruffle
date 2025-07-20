@@ -254,10 +254,6 @@ bitflags! {
 pub struct BitmapDataWrapper<'gc>(GcCell<'gc, BitmapData<'gc>>);
 
 impl<'gc> BitmapDataWrapper<'gc> {
-    pub fn new(mc: &Mutation<'gc>, data: BitmapData<'gc>) -> Self {
-        BitmapDataWrapper(GcCell::new(mc, data))
-    }
-
     // Creates a dummy BitmapData with no pixels or handle, marked as disposed.
     // This is used for AS3 `Bitmap` instances without a corresponding AS3 `BitmapData` instance.
     // Marking it as disposed skips rendering, and the unset `avm2_object` will cause this to
@@ -275,6 +271,61 @@ impl<'gc> BitmapDataWrapper<'gc> {
                 avm2_object: None,
                 display_objects: vec![],
                 dirty_state: DirtyState::Clean,
+                #[cfg(feature = "egui")]
+                egui_texture: Default::default(),
+            },
+        ))
+    }
+
+    /// Creates a new BitmapData of the given width, height, and transparency, with
+    /// all pixels set to the given `fill_color`.
+    pub fn new(
+        mc: &Mutation<'gc>,
+        width: u32,
+        height: u32,
+        transparency: bool,
+        fill_color: u32,
+    ) -> Self {
+        BitmapDataWrapper(GcCell::new(
+            mc,
+            BitmapData {
+                pixels: vec![
+                    Color::bgra_u32(fill_color).to_premultiplied_alpha(transparency);
+                    width as usize * height as usize
+                ],
+                width,
+                height,
+                transparency,
+                disposed: false,
+                bitmap_handle: None,
+                avm2_object: None,
+                display_objects: vec![],
+                dirty_state: DirtyState::Clean,
+                #[cfg(feature = "egui")]
+                egui_texture: Default::default(),
+            },
+        ))
+    }
+
+    pub fn new_with_pixels(
+        mc: &Mutation<'gc>,
+        width: u32,
+        height: u32,
+        transparency: bool,
+        pixels: Vec<Color>,
+    ) -> Self {
+        BitmapDataWrapper(GcCell::new(
+            mc,
+            BitmapData {
+                pixels,
+                width,
+                height,
+                transparency,
+                bitmap_handle: None,
+                avm2_object: None,
+                disposed: false,
+                dirty_state: DirtyState::Clean,
+                display_objects: vec![],
                 #[cfg(feature = "egui")]
                 egui_texture: Default::default(),
             },
@@ -303,7 +354,7 @@ impl<'gc> BitmapDataWrapper<'gc> {
             egui_texture: Default::default(),
         };
 
-        BitmapDataWrapper::new(context.gc(), bitmap_data)
+        BitmapDataWrapper(GcCell::new(context.gc(), bitmap_data))
     }
 
     // Provides access to the underlying `BitmapData`. If a GPU -> CPU sync
@@ -565,51 +616,11 @@ pub struct BitmapData<'gc> {
 }
 
 impl<'gc> BitmapData<'gc> {
-    pub fn new(width: u32, height: u32, transparency: bool, fill_color: u32) -> Self {
-        Self {
-            pixels: vec![
-                Color::bgra_u32(fill_color).to_premultiplied_alpha(transparency);
-                width as usize * height as usize
-            ],
-            width,
-            height,
-            transparency,
-            disposed: false,
-            bitmap_handle: None,
-            avm2_object: None,
-            display_objects: vec![],
-            dirty_state: DirtyState::Clean,
-            #[cfg(feature = "egui")]
-            egui_texture: Default::default(),
-        }
-    }
-
-    pub fn new_with_pixels(
-        width: u32,
-        height: u32,
-        transparency: bool,
-        pixels: Vec<Color>,
-    ) -> Self {
-        Self {
-            pixels,
-            width,
-            height,
-            transparency,
-            bitmap_handle: None,
-            avm2_object: None,
-            disposed: false,
-            dirty_state: DirtyState::Clean,
-            display_objects: vec![],
-            #[cfg(feature = "egui")]
-            egui_texture: Default::default(),
-        }
-    }
-
     pub fn disposed(&self) -> bool {
         self.disposed
     }
 
-    pub fn dispose(&mut self) {
+    fn dispose(&mut self) {
         self.width = 0;
         self.height = 0;
         self.pixels = Vec::new(); // free the CPU pixel buffer

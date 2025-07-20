@@ -7,7 +7,7 @@ use crate::avm1::globals::color_transform::ColorTransformObject;
 use crate::avm1::object::NativeObject;
 use crate::avm1::property_decl::{define_properties_on, Declaration};
 use crate::avm1::{Activation, Attribute, Error, Object, Value};
-use crate::bitmap::bitmap_data::{BitmapData, BitmapDataWrapper};
+use crate::bitmap::bitmap_data::BitmapDataWrapper;
 use crate::bitmap::bitmap_data::{BitmapDataDrawError, IBitmapDrawable};
 use crate::bitmap::bitmap_data::{ChannelOptions, ThresholdOperation};
 use crate::bitmap::{is_size_valid, operations};
@@ -102,11 +102,9 @@ fn constructor<'gc>(
         return Ok(Value::Undefined);
     }
 
-    let bitmap_data = BitmapData::new(width, height, transparency, fill_color);
-    this.set_native(
-        activation.gc(),
-        NativeObject::BitmapData(BitmapDataWrapper::new(activation.gc(), bitmap_data)),
-    );
+    let bitmap_data =
+        BitmapDataWrapper::new(activation.gc(), width, height, transparency, fill_color);
+    this.set_native(activation.gc(), NativeObject::BitmapData(bitmap_data));
     Ok(this.into())
 }
 
@@ -1533,7 +1531,8 @@ fn load_bitmap<'gc>(
     let bitmap = bitmap.compressed().decode().unwrap();
 
     let transparency = true;
-    let bitmap_data = BitmapData::new_with_pixels(
+    let bitmap_data = BitmapDataWrapper::new_with_pixels(
+        activation.gc(),
         bitmap.width(),
         bitmap.height(),
         transparency,
@@ -1544,7 +1543,7 @@ fn load_bitmap<'gc>(
     );
     Ok(new_bitmap_data(
         this.get_local_stored(istr!("prototype"), activation, false),
-        BitmapDataWrapper::new(activation.gc(), bitmap_data),
+        bitmap_data,
         activation,
     )
     .into())

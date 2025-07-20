@@ -791,9 +791,13 @@ pub fn compare<'gc>(
         .collect();
 
     if different {
-        let bitmap_data = BitmapData::new_with_pixels(left.width(), left.height(), true, pixels);
-
-        Some(BitmapDataWrapper::new(context.gc(), bitmap_data))
+        Some(BitmapDataWrapper::new_with_pixels(
+            context.gc(),
+            left.width(),
+            left.height(),
+            true,
+            pixels,
+        ))
     } else {
         None
     }

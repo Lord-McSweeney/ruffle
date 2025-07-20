@@ -7,7 +7,6 @@ use crate::avm2::Activation;
 use crate::avm2::Value;
 use crate::avm2::{Error, Object};
 use crate::avm2_stub_method;
-use crate::bitmap::bitmap_data::BitmapData;
 use crate::bitmap::bitmap_data::BitmapDataWrapper;
 use crate::bitmap::bitmap_data::Color;
 
@@ -48,8 +47,7 @@ pub fn do_copy<'gc>(
                 })
                 .collect();
 
-            let bitmap_data = BitmapData::new_with_pixels(width, height, true, colors);
-            BitmapDataWrapper::new(activation.gc(), bitmap_data)
+            BitmapDataWrapper::new_with_pixels(activation.gc(), width, height, true, colors)
         }
         _ => {
             tracing::warn!(

@@ -6,7 +6,7 @@ use crate::avm2::{
     ClassObject as Avm2ClassObject, Object as Avm2Object, StageObject as Avm2StageObject,
     Value as Avm2Value,
 };
-use crate::bitmap::bitmap_data::{BitmapData, BitmapDataWrapper};
+use crate::bitmap::bitmap_data::BitmapDataWrapper;
 use crate::context::{RenderContext, UpdateContext};
 use crate::display_object::{DisplayObjectBase, DisplayObjectPtr, DisplayObjectWeak};
 use crate::prelude::*;
@@ -15,8 +15,7 @@ use crate::vminterface::Instantiator;
 use core::fmt;
 use gc_arena::barrier::unlock;
 use gc_arena::lock::{Lock, RefLock};
-use gc_arena::{Collect, Gc, GcCell, GcWeak, Mutation};
-use ruffle_render::backend::RenderBackend;
+use gc_arena::{Collect, Gc, GcWeak, Mutation};
 use ruffle_render::bitmap::{BitmapFormat, PixelSnapping};
 use std::cell::{Cell, Ref, RefMut};
 use std::sync::Arc;
@@ -190,16 +189,11 @@ impl<'gc> Bitmap<'gc> {
             .as_colors()
             .map(crate::bitmap::bitmap_data::Color::from)
             .collect();
-        let bitmap_data = BitmapData::new_with_pixels(width, height, transparency, pixels);
+        let bitmap_data =
+            BitmapDataWrapper::new_with_pixels(mc, width, height, transparency, pixels);
 
         let smoothing = true;
-        Self::new_with_bitmap_data(
-            mc,
-            id,
-            BitmapDataWrapper::new(mc, bitmap_data),
-            smoothing,
-            &movie,
-        )
+        Self::new_with_bitmap_data(mc, id, bitmap_data, smoothing, &movie)
     }
 
     // Important - we read 'width' and 'height' from the cached
@@ -223,11 +217,6 @@ impl<'gc> Bitmap<'gc> {
 
     pub fn bitmap_data_wrapper(self) -> BitmapDataWrapper<'gc> {
         self.0.bitmap_data.get()
-    }
-
-    /// Retrieve the bitmap data associated with this `Bitmap`.
-    pub fn bitmap_data(self, renderer: &mut dyn RenderBackend) -> GcCell<'gc, BitmapData<'gc>> {
-        self.0.bitmap_data.get().sync(renderer)
     }
 
     /// Associate this `Bitmap` with new `BitmapData`.
