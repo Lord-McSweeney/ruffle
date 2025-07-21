@@ -123,13 +123,13 @@ pub fn get_bitmap_data<'gc>(
     let this = this.as_object().unwrap();
 
     if let Some(bitmap) = this.as_display_object().and_then(|dobj| dobj.as_bitmap()) {
-        let mut value = bitmap.bitmap_data().object2();
+        let value = bitmap.bitmap_data().object2();
 
-        // AS3 expects an unset BitmapData to be null, not 'undefined'
-        if matches!(value, Value::Undefined) {
-            value = Value::Null;
+        if let Some(value) = value {
+            return Ok(value.into());
+        } else {
+            return Ok(Value::Null);
         }
-        return Ok(value);
     }
 
     Ok(Value::Undefined)

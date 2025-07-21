@@ -1,4 +1,4 @@
-use crate::avm2::{Object as Avm2Object, Value as Avm2Value};
+use crate::avm2::Object as Avm2Object;
 use crate::context::{RenderContext, UpdateContext};
 use crate::display_object::{DisplayObject, DisplayObjectWeak, TDisplayObject};
 use bitflags::bitflags;
@@ -472,12 +472,8 @@ impl<'gc> BitmapDataWrapper<'gc> {
         self.0.borrow().width
     }
 
-    pub fn object2(&self) -> Avm2Value<'gc> {
-        self.0
-            .borrow()
-            .avm2_object
-            .map(|o| o.into())
-            .unwrap_or(Avm2Value::Null)
+    pub fn object2(&self) -> Option<Avm2Object<'gc>> {
+        self.0.borrow().avm2_object
     }
 
     pub fn disposed(&self) -> bool {
