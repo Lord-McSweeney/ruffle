@@ -3,17 +3,10 @@ package flash.geom {
     import flash.geom.Matrix3D;
     import flash.geom.Point;
 
+    [Ruffle(InstanceAllocator)]
     public class PerspectiveProjection {
-        [Ruffle(NativeAccessible)]
-        private var displayObject:DisplayObject = null;
-
-        [Ruffle(NativeAccessible)]
-        private var fov:Number = 55.0;
-
-        [Ruffle(NativeAccessible)]
-        private var center:Point = new Point(250, 250);
-
         public function PerspectiveProjection() {
+            super();
         }
 
         public native function get fieldOfView():Number;

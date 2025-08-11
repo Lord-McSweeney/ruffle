@@ -47,6 +47,7 @@ mod message_channel_object;
 mod namespace_object;
 mod net_connection_object;
 mod netstream_object;
+mod perspective_projection_object;
 mod program_3d_object;
 mod proxy_object;
 mod qname_object;
@@ -114,6 +115,9 @@ pub use crate::avm2::object::net_connection_object::{
 };
 pub use crate::avm2::object::netstream_object::{
     netstream_allocator, NetStreamObject, NetStreamObjectWeak,
+};
+pub use crate::avm2::object::perspective_projection_object::{
+    perspective_projection_allocator, PerspectiveProjectionObject, PerspectiveProjectionObjectWeak,
 };
 pub use crate::avm2::object::program_3d_object::{Program3DObject, Program3DObjectWeak};
 pub use crate::avm2::object::proxy_object::{proxy_allocator, ProxyObject, ProxyObjectWeak};
@@ -216,6 +220,7 @@ use crate::font::Font;
         WorkerDomainObject(WorkerDomainObject<'gc>),
         MessageChannelObject(MessageChannelObject<'gc>),
         SecurityDomainObject(SecurityDomainObject<'gc>),
+        PerspectiveProjectionObject(PerspectiveProjectionObject<'gc>),
     }
 )]
 pub trait TObject<'gc>: 'gc + Collect<'gc> + Debug + Into<Object<'gc>> + Clone + Copy {
@@ -787,6 +792,7 @@ impl<'gc> Object<'gc> {
         pub fn as_shared_object for SharedObjectObject;
         pub fn as_sound_transform for SoundTransformObject;
         pub fn as_style_sheet for StyleSheetObject;
+        pub fn as_perspective_projection for PerspectiveProjectionObject;
     }
 
     /// Unwrap this object's `Namespace`, if the object is a boxed namespace.
@@ -990,6 +996,7 @@ define_weak_enum! {
         WorkerDomainObject(WorkerDomainObjectWeak<'gc>),
         MessageChannelObject(MessageChannelObjectWeak<'gc>),
         SecurityDomainObject(SecurityDomainObjectWeak<'gc>),
+        PerspectiveProjectionObject(PerspectiveProjectionObjectWeak<'gc>),
     }
 }
 
