@@ -140,12 +140,12 @@ impl<'gc> ScriptObjectData<'gc> {
         proto: Option<Object<'gc>>,
         vtable: VTable<'gc>,
     ) -> Self {
-        let default_slots = vtable.default_slots();
-        let mut slots = vec![Lock::new(Value::Undefined); default_slots.len()];
+        let slot_table = vtable.slot_table();
+        let mut slots = vec![Lock::new(Value::Undefined); slot_table.len()];
 
-        for (i, value) in default_slots.iter().enumerate() {
-            if let Some(value) = value {
-                slots[i] = Lock::new(*value);
+        for (i, slot_info) in slot_table.iter().enumerate() {
+            if let Some(slot_info) = slot_info {
+                slots[i] = Lock::new(slot_info.default_value);
             }
         }
 
@@ -393,10 +393,7 @@ impl<'gc> ScriptObjectWrapper<'gc> {
 
     pub fn set_vtable(&self, mc: &Mutation<'gc>, vtable: VTable<'gc>) {
         // Make sure both vtables have the same number of slots
-        assert_eq!(
-            self.vtable().default_slots().len(),
-            vtable.default_slots().len()
-        );
+        assert_eq!(self.vtable().slot_count(), vtable.slot_count());
 
         unlock!(Gc::write(mc, self.0), ScriptObjectData, vtable).set(vtable);
     }

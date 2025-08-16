@@ -33,14 +33,11 @@ struct VTableData<'gc> {
 
     disp_metadata_table: HashMap<u32, Box<[Metadata<'gc>]>>,
 
-    /// Stores the `PropertyClass` for each slot,
-    /// indexed by `slot_id`
-    slot_classes: Box<[Lock<PropertyClass<'gc>>]>,
-
     /// method_table is indexed by `disp_id`
     method_table: Box<[ClassBoundMethod<'gc>]>,
 
-    default_slots: Box<[Option<Value<'gc>>]>,
+    /// slot_table is indexed by `slot_id`
+    slot_table: Box<[Option<SlotInfo<'gc>>]>,
 }
 
 impl PartialEq for VTable<'_> {
@@ -49,9 +46,16 @@ impl PartialEq for VTable<'_> {
     }
 }
 
-// TODO: it might make more sense to just bind the Method to the VTable (and this its class and scope) directly
-// would also be nice to somehow remove the Option-ness from `defining_class` and `scope` fields for this
-// to be more intuitive and cheaper
+#[derive(Clone, Collect)]
+#[collect(no_drop)]
+pub struct SlotInfo<'gc> {
+    pub slot_class: Lock<PropertyClass<'gc>>,
+    pub default_value: Value<'gc>,
+}
+
+// TODO: it might make more sense to just bind the Method to the VTable (and
+// this its class) directly would also be nice to somehow remove the Option-ness
+// from the `scope` field for this to be more to be more intuitive and cheaper
 #[derive(Collect, Clone)]
 #[collect(no_drop)]
 pub struct ClassBoundMethod<'gc> {
@@ -127,10 +131,10 @@ impl<'gc> VTable<'gc> {
     }
 
     pub fn slot_class_name(self, context: &mut StringContext<'gc>, slot_id: u32) -> AvmString<'gc> {
-        self.0
-            .slot_classes
-            .get(slot_id as usize)
+        self.0.slot_table[slot_id as usize]
+            .clone()
             .expect("Invalid slot ID")
+            .slot_class
             .get()
             .get_name(context)
     }
@@ -160,17 +164,18 @@ impl<'gc> VTable<'gc> {
         value: Value<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let slot_id = slot_id as usize;
-        let mut slot_class = self.0.slot_classes[slot_id].get();
+        let mut slot_class = self.0.slot_table[slot_id as usize]
+            .clone()
+            .expect("Invalid slot ID")
+            .slot_class
+            .get();
 
         let (value, changed) = slot_class.coerce(activation, value)?;
 
         // Calling coerce modified `PropertyClass` to cache the class lookup,
         // so store the new value back in the vtable.
         if changed {
-            let write = Gc::write(activation.gc(), self.0);
-            let slots = field!(write, VTableData, slot_classes).as_deref();
-            slots[slot_id].unlock().set(slot_class);
+            self.set_slot_class(activation.gc(), slot_id, slot_class);
         }
         Ok(value)
     }
@@ -191,17 +196,31 @@ impl<'gc> VTable<'gc> {
         Gc::as_ref(self.0).method_table.get(disp_id as usize)
     }
 
-    pub fn default_slots(&self) -> &[Option<Value<'gc>>] {
-        &self.0.default_slots
+    pub fn slot_table(&self) -> &[Option<SlotInfo<'gc>>] {
+        &self.0.slot_table
+    }
+
+    pub fn slot_count(self) -> usize {
+        self.0.slot_table.len()
     }
 
     pub fn slot_class(self, slot_id: u32) -> Option<PropertyClass<'gc>> {
-        self.0.slot_classes.get(slot_id as usize).map(Lock::get)
+        self.0
+            .slot_table
+            .get(slot_id as usize)
+            .and_then(|s| s.clone())
+            .map(|s| s.slot_class.get())
     }
 
     pub fn set_slot_class(self, mc: &Mutation<'gc>, slot_id: u32, value: PropertyClass<'gc>) {
-        let slots = field!(Gc::write(mc, self.0), VTableData, slot_classes).as_deref();
-        slots[slot_id as usize].unlock().set(value);
+        let write = Gc::write(mc, self.0);
+        let slot_table = field!(write, VTableData, slot_table).as_deref();
+        let slot_info = slot_table[slot_id as usize]
+            .as_write()
+            .expect("Valid slot ID");
+        let slot_write = unlock!(slot_info, SlotInfo, slot_class);
+
+        slot_write.set(value);
     }
 
     pub fn replace_scopes_with(self, mc: &Mutation<'gc>, new_scope: ScopeChain<'gc>) {
@@ -272,16 +291,14 @@ impl<'gc> VTable<'gc> {
         let mut slot_metadata_table = HashMap::new();
         let mut disp_metadata_table = HashMap::new();
         let mut method_table = Vec::new();
-        let mut default_slots = Vec::new();
-        let mut slot_classes = Vec::new();
+        let mut slot_table = Vec::new();
 
         if let Some(superclass_vtable) = superclass_vtable {
             resolved_traits = superclass_vtable.resolved_traits().clone();
             slot_metadata_table = superclass_vtable.0.slot_metadata_table.clone();
             disp_metadata_table = superclass_vtable.0.disp_metadata_table.clone();
-            slot_classes.extend_from_slice(&superclass_vtable.0.slot_classes);
             method_table.extend_from_slice(&superclass_vtable.0.method_table);
-            default_slots.extend_from_slice(&superclass_vtable.0.default_slots);
+            slot_table.extend_from_slice(&superclass_vtable.0.slot_table);
 
             if let Some(protected_namespace) = defining_class_def.protected_namespace() {
                 if let Some(super_protected_namespace) = superclass_vtable.0.protected_namespace {
@@ -409,54 +426,50 @@ impl<'gc> VTable<'gc> {
                 | TraitKind::Class { slot_id, .. } => {
                     let slot_id = *slot_id;
 
-                    let value = trait_to_default_value(trait_data);
-                    let value = Some(value);
+                    let default_value = trait_to_default_value(trait_data);
+                    let slot_class = match trait_data.kind() {
+                        TraitKind::Slot {
+                            type_name, domain, ..
+                        }
+                        | TraitKind::Const {
+                            type_name, domain, ..
+                        } => PropertyClass::name(*type_name, *domain),
+                        TraitKind::Class { class, .. } => PropertyClass::Class(
+                            class.c_class().expect("Trait should hold an i_class"),
+                        ),
+                        _ => unreachable!(),
+                    };
 
+                    let slot_info = SlotInfo {
+                        slot_class: Lock::new(slot_class),
+                        default_value,
+                    };
+
+                    // Calculate the position of the new slot
                     let new_slot_id = if slot_id == 0 {
-                        default_slots.push(value);
-                        default_slots.len() as u32 - 1
+                        slot_table.push(Some(slot_info));
+                        slot_table.len() as u32 - 1
                     } else {
                         // it's non-zero, so let's turn it from 1-based to 0-based.
                         let slot_id = slot_id - 1;
-                        if let Some(Some(_)) = default_slots.get(slot_id as usize) {
+                        if let Some(Some(_)) = slot_table.get(slot_id as usize) {
                             // slot_id conflict
-                            default_slots.push(value);
-                            default_slots.len() as u32 - 1
+                            slot_table.push(Some(slot_info));
+                            slot_table.len() as u32 - 1
                         } else {
-                            if slot_id as usize >= default_slots.len() {
-                                default_slots.resize_with(slot_id as usize + 1, Default::default);
+                            if slot_id as usize >= slot_table.len() {
+                                slot_table.resize_with(slot_id as usize + 1, Default::default);
                             }
-                            default_slots[slot_id as usize] = value;
+                            slot_table[slot_id as usize] = Some(slot_info);
                             slot_id
                         }
                     };
 
-                    if new_slot_id as usize >= slot_classes.len() {
-                        // We will overwrite `PropertyClass::Any` when we process the slots
-                        // with the ids that we just skipped over.
-                        slot_classes
-                            .resize(new_slot_id as usize + 1, Lock::new(PropertyClass::Any));
-                    }
-
-                    let (new_prop, new_class) = match trait_data.kind() {
-                        TraitKind::Slot {
-                            type_name, domain, ..
-                        } => (
-                            Property::new_slot(new_slot_id),
-                            PropertyClass::name(*type_name, *domain),
-                        ),
-                        TraitKind::Const {
-                            type_name, domain, ..
-                        } => (
-                            Property::new_const_slot(new_slot_id),
-                            PropertyClass::name(*type_name, *domain),
-                        ),
-                        TraitKind::Class { class, .. } => (
-                            Property::new_const_slot(new_slot_id),
-                            PropertyClass::Class(
-                                class.c_class().expect("Trait should hold an i_class"),
-                            ),
-                        ),
+                    let new_prop = match trait_data.kind() {
+                        TraitKind::Slot { .. } => Property::new_slot(new_slot_id),
+                        TraitKind::Const { .. } | TraitKind::Class { .. } => {
+                            Property::new_const_slot(new_slot_id)
+                        }
                         _ => unreachable!(),
                     };
 
@@ -465,8 +478,6 @@ impl<'gc> VTable<'gc> {
                     if let Some(metadata) = trait_data.metadata() {
                         slot_metadata_table.insert(new_slot_id, metadata);
                     }
-
-                    slot_classes[new_slot_id as usize] = Lock::new(new_class);
                 }
             }
         }
@@ -478,8 +489,7 @@ impl<'gc> VTable<'gc> {
             slot_metadata_table,
             disp_metadata_table,
             method_table: method_table.into_boxed_slice(),
-            default_slots: default_slots.into_boxed_slice(),
-            slot_classes: slot_classes.into_boxed_slice(),
+            slot_table: slot_table.into_boxed_slice(),
         }
     }
 
