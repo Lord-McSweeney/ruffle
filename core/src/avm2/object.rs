@@ -648,10 +648,10 @@ pub trait TObject<'gc>: 'gc + Collect<'gc> + Debug + Into<Object<'gc>> + Clone +
         for (name, prop) in vtable.public_properties() {
             match prop {
                 Property::Slot { slot_id } | Property::ConstSlot { slot_id } => {
-                    values.push((name, self.base().get_slot(slot_id)));
+                    values.push((name, self.base().get_slot(*slot_id)));
                 }
                 Property::Virtual { get: Some(get), .. } => {
-                    values.push((name, Value::from(*self).call_method(get, &[], activation)?))
+                    values.push((name, Value::from(*self).call_method(*get, &[], activation)?))
                 }
                 _ => {}
             }

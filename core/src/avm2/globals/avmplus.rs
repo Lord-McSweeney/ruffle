@@ -5,7 +5,8 @@ use crate::avm2::method::Method;
 use crate::avm2::object::{ArrayObject, ScriptObject, TObject as _};
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::property::Property;
-use crate::avm2::{Activation, Error, Multiname, Namespace, Object, Value};
+use crate::avm2::property_map::PropertyMap;
+use crate::avm2::{Activation, Error, Multiname, Namespace, Object, QName, Value};
 use crate::string::{AvmString, StringContext};
 
 use crate::avm2_stub_method;
@@ -163,7 +164,7 @@ fn describe_internal_body<'gc>(
     // https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/TypeDescriber.cpp#L237
     let mut skip_ns: Vec<Namespace<'_>> = Vec::new();
     if let Some(super_vtable) = super_vtable {
-        for (_, ns, prop) in super_vtable.resolved_traits().iter() {
+        for (_, ns, prop) in super_vtable.iter_resolved_traits() {
             if !ns.as_uri(activation.strings()).is_empty() {
                 if let Property::Method { .. } = prop {
                     if !skip_ns
@@ -177,9 +178,12 @@ fn describe_internal_body<'gc>(
         }
     }
 
+    // Hashset for already-seen properties
+    let mut seen_props: PropertyMap<'gc, ()> = PropertyMap::new();
+
     // FIXME - avmplus iterates over their own hashtable, so the order in the final XML
     // is different
-    for (prop_name, ns, prop) in vtable.resolved_traits().iter() {
+    for (prop_name, ns, prop) in vtable.iter_resolved_traits() {
         if !ns.is_public_ignoring_ns() {
             continue;
         }
@@ -193,6 +197,15 @@ fn describe_internal_body<'gc>(
                 .iter()
                 .any(|other_ns| ns.exact_version_match(*other_ns))
         {
+            continue;
+        }
+
+        // TODO: How does namespace versioning play into this? Should we be
+        // comparing by exact version instead?
+        if seen_props.insert(QName::new(ns, prop_name), ()).is_some() {
+            // We've already seen this property, don't include it again. This
+            // branch is reachable when a subclass and its superclass both have
+            // a slot property with the same name.
             continue;
         }
 

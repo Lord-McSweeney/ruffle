@@ -136,6 +136,13 @@ impl Property {
         }
     }
 
+    pub fn new_getter_setter(get_disp_id: u32, set_disp_id: u32) -> Self {
+        Property::Virtual {
+            get: Some(get_disp_id),
+            set: Some(set_disp_id),
+        }
+    }
+
     pub fn new_slot(slot_id: u32) -> Self {
         Property::Slot { slot_id }
     }

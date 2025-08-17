@@ -22,6 +22,8 @@ pub struct VTable<'gc>(Gc<'gc, VTableData<'gc>>);
 #[derive(Collect, Default)]
 #[collect(no_drop)]
 struct VTableData<'gc> {
+    parent: Option<VTable<'gc>>,
+
     scope: Option<ScopeChain<'gc>>,
 
     protected_namespace: Option<Namespace<'gc>>,
@@ -112,7 +114,7 @@ impl<'gc> VTable<'gc> {
         VTable(Gc::new(context.gc(), this))
     }
 
-    pub fn resolved_traits(self) -> &'gc PropertyMap<'gc, Property> {
+    fn resolved_traits(self) -> &'gc PropertyMap<'gc, Property> {
         &Gc::as_ref(self.0).resolved_traits
     }
 
@@ -144,7 +146,18 @@ impl<'gc> VTable<'gc> {
             return None;
         }
 
-        self.resolved_traits().get_for_multiname(name).cloned()
+        // Check all ancestor vtables
+        let mut vtable = Some(self);
+        while let Some(current_vtable) = vtable {
+            let result = current_vtable.resolved_traits().get_for_multiname(name);
+            if result.is_some() {
+                return result.cloned();
+            }
+
+            vtable = current_vtable.0.parent;
+        }
+
+        None
     }
 
     pub fn get_trait_with_ns(self, name: &Multiname<'gc>) -> Option<(Namespace<'gc>, Property)> {
@@ -152,9 +165,35 @@ impl<'gc> VTable<'gc> {
             return None;
         }
 
-        self.resolved_traits()
-            .get_with_ns_for_multiname(name)
-            .map(|(ns, p)| (ns, *p))
+        // Check all ancestor vtables
+        let mut vtable = Some(self);
+        while let Some(current_vtable) = vtable {
+            let result = current_vtable
+                .resolved_traits()
+                .get_with_ns_for_multiname(name);
+            if result.is_some() {
+                return result.map(|(ns, p)| (ns, *p));
+            }
+
+            vtable = current_vtable.0.parent;
+        }
+
+        None
+    }
+
+    fn get_trait_by_qname(self, name: QName<'gc>) -> Option<Property> {
+        // Check all ancestor vtables
+        let mut vtable = Some(self);
+        while let Some(current_vtable) = vtable {
+            let result = current_vtable.resolved_traits().get(name);
+            if result.is_some() {
+                return result.cloned();
+            }
+
+            vtable = current_vtable.0.parent;
+        }
+
+        None
     }
 
     /// Coerces `value` to the type of the slot with id `slot_id`
@@ -181,7 +220,7 @@ impl<'gc> VTable<'gc> {
     }
 
     pub fn has_trait(self, name: &Multiname<'gc>) -> bool {
-        self.resolved_traits().get_for_multiname(name).is_some()
+        self.get_trait(name).is_some()
     }
 
     pub fn get_method(self, disp_id: u32) -> Option<Method<'gc>> {
@@ -294,7 +333,6 @@ impl<'gc> VTable<'gc> {
         let mut slot_table = Vec::new();
 
         if let Some(superclass_vtable) = superclass_vtable {
-            resolved_traits = superclass_vtable.resolved_traits().clone();
             slot_metadata_table = superclass_vtable.0.slot_metadata_table.clone();
             disp_metadata_table = superclass_vtable.0.disp_metadata_table.clone();
             method_table.extend_from_slice(&superclass_vtable.0.method_table);
@@ -315,6 +353,10 @@ impl<'gc> VTable<'gc> {
         }
 
         for trait_data in defining_class_def.traits() {
+            let this_lookup = resolved_traits.get(trait_data.name());
+            let super_lookup =
+                superclass_vtable.and_then(|p| p.get_trait_by_qname(trait_data.name()));
+
             match trait_data.kind() {
                 TraitKind::Method { method, .. } => {
                     let entry = ClassBoundMethod {
@@ -323,25 +365,63 @@ impl<'gc> VTable<'gc> {
                         scope: Lock::new(scope),
                         method: *method,
                     };
-                    match resolved_traits.get(trait_data.name()) {
+                    match super_lookup {
                         Some(Property::Method { disp_id, .. }) => {
-                            if let Some(metadata) = trait_data.metadata() {
-                                disp_metadata_table.insert(*disp_id, metadata);
-                            }
-
-                            method_table[*disp_id as usize] = entry;
-                        }
-                        // note: ideally overwriting other property types
-                        // should be a VerifyError
-                        _ => {
-                            let disp_id = method_table.len() as u32;
-                            method_table.push(entry);
-                            resolved_traits
-                                .insert(trait_data.name(), Property::new_method(disp_id));
-
                             if let Some(metadata) = trait_data.metadata() {
                                 disp_metadata_table.insert(disp_id, metadata);
                             }
+
+                            method_table[disp_id as usize] = entry;
+                        }
+                        None => {
+                            // Check if it was using the current class's protected
+                            // namespace to override a method in a superclass
+                            // defined using that superclass's protected namespace.
+                            let protected_ns = defining_class_def.protected_namespace();
+                            let trait_has_protected_ns = protected_ns.is_some_and(|s| {
+                                s.exact_version_match(trait_data.name().namespace())
+                            });
+                            if let Some(super_protected_namespace) = superclass_vtable
+                                .and_then(|v| v.0.protected_namespace)
+                                .filter(|_| trait_has_protected_ns)
+                            {
+                                let new_name = QName::new(
+                                    super_protected_namespace,
+                                    trait_data.name().local_name(),
+                                );
+                                let super_lookup =
+                                    superclass_vtable.and_then(|p| p.get_trait_by_qname(new_name));
+                                if let Some(Property::Method { disp_id, .. }) = super_lookup {
+                                    // This was overriding a method in the protected
+                                    // namespcae of the superclass.
+                                    if let Some(metadata) = trait_data.metadata() {
+                                        disp_metadata_table.insert(disp_id, metadata);
+                                    }
+
+                                    method_table[disp_id as usize] = entry;
+                                } else {
+                                    let disp_id = method_table.len() as u32;
+                                    method_table.push(entry);
+                                    resolved_traits
+                                        .insert(trait_data.name(), Property::new_method(disp_id));
+
+                                    if let Some(metadata) = trait_data.metadata() {
+                                        disp_metadata_table.insert(disp_id, metadata);
+                                    }
+                                }
+                            } else {
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+                                resolved_traits
+                                    .insert(trait_data.name(), Property::new_method(disp_id));
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
+                            }
+                        }
+                        Some(_) => {
+                            unreachable!("Verification ensures methods only override methods")
                         }
                     }
                 }
@@ -352,35 +432,82 @@ impl<'gc> VTable<'gc> {
                         scope: Lock::new(scope),
                         method: *method,
                     };
-                    match resolved_traits.get_mut(trait_data.name()) {
+                    match super_lookup {
                         Some(Property::Virtual {
                             get: Some(disp_id), ..
                         }) => {
                             if let Some(metadata) = trait_data.metadata() {
-                                disp_metadata_table.insert(*disp_id, metadata);
-                            }
-
-                            method_table[*disp_id as usize] = entry;
-                        }
-                        Some(Property::Virtual { get, .. }) => {
-                            let disp_id = method_table.len() as u32;
-                            *get = Some(disp_id);
-                            method_table.push(entry);
-
-                            if let Some(metadata) = trait_data.metadata() {
                                 disp_metadata_table.insert(disp_id, metadata);
                             }
-                        }
-                        _ => {
-                            let disp_id = method_table.len() as u32;
-                            method_table.push(entry);
-                            resolved_traits
-                                .insert(trait_data.name(), Property::new_getter(disp_id));
 
-                            if let Some(metadata) = trait_data.metadata() {
-                                disp_metadata_table.insert(disp_id, metadata);
+                            method_table[disp_id as usize] = entry;
+                        }
+                        Some(Property::Virtual {
+                            get: None,
+                            set: Some(set_disp_id),
+                        }) => {
+                            if let Some(Property::Virtual {
+                                set: Some(set_disp_id),
+                                ..
+                            }) = this_lookup
+                            {
+                                // This is a getter for a setter in the same
+                                // vtable (the current vtable), replace the
+                                // setter with a getter+setter
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+
+                                let property = Property::new_getter_setter(disp_id, *set_disp_id);
+                                resolved_traits.insert(trait_data.name(), property);
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
+                            } else {
+                                // Override a setter-only property with a getter
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+
+                                let property = Property::new_getter_setter(disp_id, set_disp_id);
+                                resolved_traits.insert(trait_data.name(), property);
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
                             }
                         }
+                        None => {
+                            if let Some(Property::Virtual {
+                                set: Some(set_disp_id),
+                                ..
+                            }) = this_lookup
+                            {
+                                // This is a getter for a setter in the same
+                                // vtable (the super vtable), replace the
+                                // setter with a getter+setter
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+
+                                let property = Property::new_getter_setter(disp_id, *set_disp_id);
+                                resolved_traits.insert(trait_data.name(), property);
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
+                            } else {
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+                                resolved_traits
+                                    .insert(trait_data.name(), Property::new_getter(disp_id));
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
+                            }
+                        }
+                        Some(_) => unreachable!(
+                            "Verification ensures getters only override getters/setters"
+                        ),
                     }
                 }
                 TraitKind::Setter { method, .. } => {
@@ -390,35 +517,82 @@ impl<'gc> VTable<'gc> {
                         scope: Lock::new(scope),
                         method: *method,
                     };
-                    match resolved_traits.get_mut(trait_data.name()) {
+                    match super_lookup {
                         Some(Property::Virtual {
                             set: Some(disp_id), ..
                         }) => {
                             if let Some(metadata) = trait_data.metadata() {
-                                disp_metadata_table.insert(*disp_id, metadata);
-                            }
-
-                            method_table[*disp_id as usize] = entry;
-                        }
-                        Some(Property::Virtual { set, .. }) => {
-                            let disp_id = method_table.len() as u32;
-                            method_table.push(entry);
-                            *set = Some(disp_id);
-
-                            if let Some(metadata) = trait_data.metadata() {
                                 disp_metadata_table.insert(disp_id, metadata);
                             }
-                        }
-                        _ => {
-                            let disp_id = method_table.len() as u32;
-                            method_table.push(entry);
-                            resolved_traits
-                                .insert(trait_data.name(), Property::new_setter(disp_id));
 
-                            if let Some(metadata) = trait_data.metadata() {
-                                disp_metadata_table.insert(disp_id, metadata);
+                            method_table[disp_id as usize] = entry;
+                        }
+                        Some(Property::Virtual {
+                            set: None,
+                            get: Some(get_disp_id),
+                        }) => {
+                            if let Some(Property::Virtual {
+                                get: Some(get_disp_id),
+                                ..
+                            }) = this_lookup
+                            {
+                                // This is a setter for a getter in the same
+                                // vtable (the current vtable), replace the
+                                // getter with a getter+setter
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+
+                                let property = Property::new_getter_setter(*get_disp_id, disp_id);
+                                resolved_traits.insert(trait_data.name(), property);
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
+                            } else {
+                                // Override a getter-only property with a setter
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+
+                                let property = Property::new_getter_setter(get_disp_id, disp_id);
+                                resolved_traits.insert(trait_data.name(), property);
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
                             }
                         }
+                        None => {
+                            if let Some(Property::Virtual {
+                                get: Some(get_disp_id),
+                                ..
+                            }) = this_lookup
+                            {
+                                // This is a setter for a getter in the same
+                                // vtable (the super vtable), replace the
+                                // getter with a getter+setter
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+
+                                let property = Property::new_getter_setter(*get_disp_id, disp_id);
+                                resolved_traits.insert(trait_data.name(), property);
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
+                            } else {
+                                let disp_id = method_table.len() as u32;
+                                method_table.push(entry);
+                                resolved_traits
+                                    .insert(trait_data.name(), Property::new_setter(disp_id));
+
+                                if let Some(metadata) = trait_data.metadata() {
+                                    disp_metadata_table.insert(disp_id, metadata);
+                                }
+                            }
+                        }
+                        Some(_) => unreachable!(
+                            "Verification ensures setters only override getters/setters"
+                        ),
                     }
                 }
                 TraitKind::Slot { slot_id, .. }
@@ -483,6 +657,7 @@ impl<'gc> VTable<'gc> {
         }
 
         VTableData {
+            parent: superclass_vtable,
             scope,
             protected_namespace: defining_class_def.protected_namespace(),
             resolved_traits,
@@ -558,11 +733,26 @@ impl<'gc> VTable<'gc> {
         )
     }
 
-    pub fn public_properties(self) -> impl Iterator<Item = (AvmString<'gc>, Property)> {
-        self.resolved_traits()
-            .iter()
+    pub fn iter_resolved_traits(
+        &self,
+    ) -> impl Iterator<Item = (AvmString<'gc>, Namespace<'gc>, &Property)> {
+        let mut result_vec = Vec::new();
+
+        let mut vtable = Some(*self);
+        while let Some(current_vtable) = vtable {
+            let iterator = current_vtable.resolved_traits().iter();
+            result_vec.extend(iterator);
+
+            vtable = current_vtable.0.parent;
+        }
+
+        result_vec.into_iter()
+    }
+
+    pub fn public_properties(&self) -> impl Iterator<Item = (AvmString<'gc>, &Property)> {
+        self.iter_resolved_traits()
             .filter(|(_, ns, _)| ns.is_public())
-            .map(|(name, _, prop)| (name, *prop))
+            .map(|(name, _, prop)| (name, prop))
     }
 }
 
