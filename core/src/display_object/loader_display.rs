@@ -40,18 +40,18 @@ pub struct LoaderDisplayData<'gc> {
     base: InteractiveObjectBase<'gc>,
     container: RefLock<ChildContainer<'gc>>,
     avm2_object: Lock<Option<Avm2StageObject<'gc>>>,
-    movie: Arc<SwfMovie>,
 }
 
 impl<'gc> LoaderDisplay<'gc> {
     pub fn empty(activation: &mut Activation<'_, 'gc>, movie: Arc<SwfMovie>) -> Self {
+        let mc = activation.gc();
+
         let obj = LoaderDisplay(Gc::new(
-            activation.gc(),
+            mc,
             LoaderDisplayData {
-                base: Default::default(),
+                base: InteractiveObjectBase::from_shared(mc, movie.clone(), u16::MAX),
                 container: RefLock::new(ChildContainer::new(&movie)),
                 avm2_object: Lock::new(None),
-                movie,
             },
         ));
 
@@ -72,10 +72,6 @@ impl<'gc> TDisplayObject<'gc> for LoaderDisplay<'gc> {
 
     fn instantiate(self, gc_context: &Mutation<'gc>) -> DisplayObject<'gc> {
         Self(Gc::new(gc_context, self.0.as_ref().clone())).into()
-    }
-
-    fn id(self) -> CharacterId {
-        u16::MAX
     }
 
     fn render_self(self, context: &mut RenderContext<'_, 'gc>) {
@@ -111,10 +107,6 @@ impl<'gc> TDisplayObject<'gc> for LoaderDisplay<'gc> {
         for child in self.iter_render_list() {
             child.construct_frame(context);
         }
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.movie.clone()
     }
 
     fn on_parent_removed(self, context: &mut UpdateContext<'gc>) {

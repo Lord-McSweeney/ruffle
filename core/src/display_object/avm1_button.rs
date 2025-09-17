@@ -13,7 +13,7 @@ use crate::display_object::{Avm1TextFieldBinding, DisplayObjectBase};
 use crate::events::{ClipEvent, ClipEventResult};
 use crate::prelude::*;
 use crate::string::AvmString;
-use crate::tag_utils::{SwfMovie, SwfSlice};
+use crate::tag_utils::SwfSlice;
 use crate::utils::HasPrefixField;
 use crate::vminterface::Instantiator;
 use core::fmt;
@@ -24,7 +24,6 @@ use ruffle_macros::istr;
 use ruffle_render::filters::Filter;
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use swf::ButtonActionCondition;
 
 #[derive(Clone, Collect, Copy)]
@@ -73,12 +72,14 @@ impl<'gc> Avm1Button<'gc> {
             })
             .collect();
 
+        let movie = &source_movie.movie;
+
         Avm1Button(Gc::new(
             mc,
             Avm1ButtonData {
-                base: Default::default(),
+                base: InteractiveObjectBase::from_shared(mc, movie.clone(), button.id),
                 cell: RefLock::new(Avm1ButtonDataMut {
-                    container: ChildContainer::new(&source_movie.movie),
+                    container: ChildContainer::new(&movie),
                     hit_area: BTreeMap::new(),
                     hit_bounds: Default::default(),
                     text_field_bindings: Vec::new(),
@@ -86,8 +87,6 @@ impl<'gc> Avm1Button<'gc> {
                 shared: Gc::new(
                     mc,
                     ButtonShared {
-                        swf: source_movie.movie.clone(),
-                        id: button.id,
                         actions,
                         cell: RefCell::new(ButtonSharedMut {
                             records: button.records.clone(),
@@ -254,14 +253,6 @@ impl<'gc> TDisplayObject<'gc> for Avm1Button<'gc> {
         Self(Gc::new(mc, data.clone())).into()
     }
 
-    fn id(self) -> CharacterId {
-        self.0.shared.id
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.movie()
-    }
-
     fn post_instantiation(
         self,
         context: &mut UpdateContext<'gc>,
@@ -291,7 +282,7 @@ impl<'gc> TDisplayObject<'gc> for Avm1Button<'gc> {
                 if record.states.contains(swf::ButtonState::HIT_TEST) {
                     match context
                         .library
-                        .library_for_movie_mut(self.0.movie())
+                        .library_for_movie_mut(self.movie())
                         .instantiate_by_id(record.id, context.gc_context)
                     {
                         Some(child) => {
@@ -303,7 +294,7 @@ impl<'gc> TDisplayObject<'gc> for Avm1Button<'gc> {
                         None => {
                             tracing::error!(
                                 "Button ID {}: could not instantiate child ID {}",
-                                self.0.shared.id,
+                                self.id(),
                                 record.id,
                             );
                         }
@@ -618,10 +609,6 @@ impl<'gc> Avm1ButtonData<'gc> {
         }
         handled
     }
-
-    fn movie(&self) -> Arc<SwfMovie> {
-        self.shared.swf.clone()
-    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Collect)]
@@ -658,8 +645,6 @@ pub enum ButtonTracking {
 #[derive(Collect, Debug)]
 #[collect(require_static)]
 struct ButtonShared {
-    swf: Arc<SwfMovie>,
-    id: CharacterId,
     actions: Vec<ButtonAction>,
     cell: RefCell<ButtonSharedMut>,
 }

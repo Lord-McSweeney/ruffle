@@ -157,7 +157,7 @@ impl<'gc> Stage<'gc> {
         let stage = Self(Gc::new(
             gc_context,
             StageData {
-                base: Default::default(),
+                base: InteractiveObjectBase::from_shared(gc_context, movie.clone(), u16::MAX),
                 child: RefLock::new(ChildContainer::new(&movie)),
                 background_color: Cell::new(None),
                 letterbox: Cell::new(Letterbox::Fullscreen),
@@ -804,10 +804,6 @@ impl<'gc> TDisplayObject<'gc> for Stage<'gc> {
         }
     }
 
-    fn id(self) -> CharacterId {
-        u16::MAX
-    }
-
     fn self_bounds(self) -> Rectangle<Twips> {
         Default::default()
     }
@@ -886,10 +882,6 @@ impl<'gc> TDisplayObject<'gc> for Stage<'gc> {
 
     fn loader_info(self) -> Option<LoaderInfoObject<'gc>> {
         self.0.loader_info.get()
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.movie.borrow().clone()
     }
 }
 

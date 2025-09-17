@@ -51,9 +51,11 @@ impl<'gc> Graphic<'gc> {
         swf_shape: swf::Shape,
         movie: Arc<SwfMovie>,
     ) -> Self {
+        let mc = context.gc();
+
+        let character_id = swf_shape.id;
         let library = context.library.library_for_movie(movie.clone()).unwrap();
         let shared = GraphicShared {
-            id: swf_shape.id,
             bounds: swf_shape.shape_bounds,
             render_handle: Some(
                 context
@@ -61,14 +63,13 @@ impl<'gc> Graphic<'gc> {
                     .register_shape((&swf_shape).into(), &MovieLibrarySource { library }),
             ),
             shape: swf_shape,
-            movie,
         };
 
         Graphic(Gc::new(
-            context.gc(),
+            mc,
             GraphicData {
-                base: Default::default(),
-                shared: Lock::new(Gc::new(context.gc(), shared)),
+                base: DisplayObjectBase::from_shared(mc, movie, character_id),
+                shared: Lock::new(Gc::new(mc, shared)),
                 class: Lock::new(None),
                 avm2_object: Lock::new(None),
                 drawing: OnceCell::new(),
@@ -78,8 +79,9 @@ impl<'gc> Graphic<'gc> {
 
     /// Construct an empty `Graphic`.
     pub fn empty(context: &mut UpdateContext<'gc>) -> Self {
+        let mc = context.gc();
+
         let shared = GraphicShared {
-            id: 0,
             bounds: Default::default(),
             render_handle: None,
             shape: swf::Shape {
@@ -94,14 +96,13 @@ impl<'gc> Graphic<'gc> {
                 },
                 shape: Vec::new(),
             },
-            movie: context.root_swf.clone(),
         };
 
         Graphic(Gc::new(
-            context.gc(),
+            mc,
             GraphicData {
-                base: Default::default(),
-                shared: Lock::new(Gc::new(context.gc(), shared)),
+                base: DisplayObjectBase::from_shared(mc, context.root_swf.clone(), 0),
+                shared: Lock::new(Gc::new(mc, shared)),
                 class: Lock::new(None),
                 avm2_object: Lock::new(None),
                 drawing: OnceCell::new(),
@@ -129,10 +130,6 @@ impl<'gc> TDisplayObject<'gc> for Graphic<'gc> {
 
     fn instantiate(self, gc_context: &Mutation<'gc>) -> DisplayObject<'gc> {
         Self(Gc::new(gc_context, self.0.as_ref().clone())).into()
-    }
-
-    fn id(self) -> CharacterId {
-        self.0.shared.get().id
     }
 
     fn self_bounds(self) -> Rectangle<Twips> {
@@ -176,6 +173,10 @@ impl<'gc> TDisplayObject<'gc> for Graphic<'gc> {
             .library_for_movie_mut(self.movie())
             .get_graphic(id)
         {
+            // Replace base DisplayObject shared data
+            self.copy_base_shared_from(context.gc(), new_graphic.into());
+
+            // Replace Graphic-specific shared data
             self.set_shared(context.gc(), new_graphic.0.shared.get());
         } else {
             tracing::warn!("PlaceObject: expected Graphic at character ID {}", id);
@@ -237,10 +238,6 @@ impl<'gc> TDisplayObject<'gc> for Graphic<'gc> {
         }
     }
 
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.shared.get().movie.clone()
-    }
-
     fn object2(self) -> Option<Avm2StageObject<'gc>> {
         self.0.avm2_object.get()
     }
@@ -259,9 +256,7 @@ impl<'gc> TDisplayObject<'gc> for Graphic<'gc> {
 #[derive(Collect)]
 #[collect(require_static)]
 struct GraphicShared {
-    id: CharacterId,
     shape: swf::Shape,
     render_handle: Option<ShapeHandle>,
     bounds: Rectangle<Twips>,
-    movie: Arc<SwfMovie>,
 }

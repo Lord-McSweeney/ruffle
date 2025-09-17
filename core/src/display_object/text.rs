@@ -44,15 +44,15 @@ impl<'gc> Text<'gc> {
         swf: Arc<SwfMovie>,
         tag: &swf::Text,
     ) -> Self {
+        let mc = context.gc();
+
         Text(Gc::new(
-            context.gc(),
+            mc,
             TextData {
-                base: Default::default(),
+                base: DisplayObjectBase::from_shared(mc, swf, tag.id),
                 shared: Lock::new(Gc::new(
-                    context.gc(),
+                    mc,
                     TextShared {
-                        swf,
-                        id: tag.id,
                         bounds: tag.bounds,
                         text_transform: tag.matrix.into(),
                         text_blocks: tag.records.clone(),
@@ -106,20 +106,16 @@ impl<'gc> TDisplayObject<'gc> for Text<'gc> {
         Self(Gc::new(gc_context, self.0.as_ref().clone())).into()
     }
 
-    fn id(self) -> CharacterId {
-        self.0.shared.get().id
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.shared.get().swf.clone()
-    }
-
     fn replace_with(self, context: &mut UpdateContext<'gc>, id: CharacterId) {
         if let Some(new_text) = context
             .library
             .library_for_movie_mut(self.movie())
             .get_text(id)
         {
+            // Replace base DisplayObject shared data
+            self.copy_base_shared_from(context.gc(), new_text.into());
+
+            // Replace Text-specific shared data
             self.set_shared(context, new_text.0.shared.get());
         } else {
             tracing::warn!("PlaceObject: expected text at character ID {}", id);
@@ -287,8 +283,6 @@ impl<'gc> TDisplayObject<'gc> for Text<'gc> {
 #[derive(Debug, Clone, Collect)]
 #[collect(require_static)]
 struct TextShared {
-    swf: Arc<SwfMovie>,
-    id: CharacterId,
     bounds: Rectangle<Twips>,
     text_transform: Matrix,
     text_blocks: Vec<swf::TextRecord>,

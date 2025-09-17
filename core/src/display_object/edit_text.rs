@@ -223,24 +223,6 @@ impl EditTextData<'_> {
             FontType::Embedded
         }
     }
-
-    fn parse_html(&self, text: &WStr) {
-        let default_format = self.text_spans.borrow().default_format().clone();
-        self.text_spans.replace(FormatSpans::from_html(
-            text,
-            default_format,
-            self.style_sheet.get().style_sheet(),
-            self.flags.get().contains(EditTextFlag::MULTILINE),
-            self.flags.get().contains(EditTextFlag::CONDENSE_WHITE),
-            self.shared.swf.version(),
-        ));
-        self.original_html_text
-            .replace(if self.style_sheet.get().is_some() {
-                Some(text.to_owned())
-            } else {
-                None
-            });
-    }
 }
 
 impl<'gc> EditText<'gc> {
@@ -262,6 +244,8 @@ impl<'gc> EditText<'gc> {
         swf_movie: Arc<SwfMovie>,
         swf_tag: swf::EditText,
     ) -> Self {
+        let mc = context.gc();
+
         let default_format = TextFormat::from_swf_tag(swf_tag.clone(), swf_movie.clone(), context);
         let encoding = swf_movie.encoding();
         let text = swf_tag.initial_text().unwrap_or_default().decode(encoding);
@@ -336,15 +320,13 @@ impl<'gc> EditText<'gc> {
         };
 
         let et = EditText(Gc::new(
-            context.gc(),
+            mc,
             EditTextData {
-                base: Default::default(),
+                base: InteractiveObjectBase::from_shared(mc, swf_movie, swf_tag.id()),
                 text_spans: RefCell::new(text_spans),
                 shared: Gc::new(
-                    context.gc(),
+                    mc,
                     EditTextShared {
-                        swf: swf_movie,
-                        id: swf_tag.id(),
                         initial_text: swf_tag
                             .initial_text()
                             .map(|s| s.decode(encoding).into_owned()),
@@ -472,7 +454,7 @@ impl<'gc> EditText<'gc> {
 
         if self.0.style_sheet.get().is_some() {
             // When CSS is set, text will always be treated as HTML.
-            self.0.parse_html(text);
+            self.parse_html(text);
         } else {
             let default_format = self.0.text_spans.borrow().default_format().clone();
             self.0
@@ -508,11 +490,30 @@ impl<'gc> EditText<'gc> {
         }
 
         if self.is_effectively_html() {
-            self.0.parse_html(text);
+            self.parse_html(text);
             self.relayout(context);
         } else {
             self.set_text(text, context);
         }
+    }
+
+    fn parse_html(self, text: &WStr) {
+        let default_format = self.0.text_spans.borrow().default_format().clone();
+        self.0.text_spans.replace(FormatSpans::from_html(
+            text,
+            default_format,
+            self.style_sheet(),
+            self.is_multiline(),
+            self.condense_white(),
+            self.swf_version(),
+        ));
+        self.0
+            .original_html_text
+            .replace(if self.style_sheet().is_some() {
+                Some(text.to_owned())
+            } else {
+                None
+            });
     }
 
     pub fn text_length(self) -> usize {
@@ -756,7 +757,7 @@ impl<'gc> EditText<'gc> {
 
         let original_html_text = self.0.original_html_text.borrow().clone();
         if let Some(html) = original_html_text {
-            self.0.parse_html(&html);
+            self.parse_html(&html);
         }
         self.relayout(context);
     }
@@ -876,7 +877,7 @@ impl<'gc> EditText<'gc> {
     pub fn relayout(self, context: &mut UpdateContext<'gc>) {
         let autosize = self.0.autosize.get();
         let is_word_wrap = self.0.flags.get().contains(EditTextFlag::WORD_WRAP);
-        let movie = self.0.shared.swf.clone();
+        let movie = self.movie();
         let padding = Self::GUTTER * 2;
 
         let mut text_spans = self.0.text_spans.borrow_mut();
@@ -2528,14 +2529,6 @@ impl<'gc> TDisplayObject<'gc> for EditText<'gc> {
         Self(Gc::new(gc_context, self.0.as_ref().clone())).into()
     }
 
-    fn id(self) -> CharacterId {
-        self.0.shared.id
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.shared.swf.clone()
-    }
-
     /// Construct objects placed on this frame.
     fn construct_frame(self, context: &mut UpdateContext<'gc>) {
         if self.movie().is_action_script_3() && self.object2().is_none() {
@@ -3186,8 +3179,6 @@ bitflags::bitflags! {
 #[derive(Debug, Clone, Collect)]
 #[collect(require_static)]
 struct EditTextShared {
-    swf: Arc<SwfMovie>,
-    id: CharacterId,
     initial_text: Option<WString>,
 }
 

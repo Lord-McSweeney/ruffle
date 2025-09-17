@@ -16,7 +16,7 @@ use crate::display_object::{DisplayObjectBase, MovieClip};
 use crate::events::{ClipEvent, ClipEventResult};
 use crate::frame_lifecycle::catchup_display_object_to_frame;
 use crate::prelude::*;
-use crate::tag_utils::{SwfMovie, SwfSlice};
+use crate::tag_utils::SwfSlice;
 use crate::utils::HasPrefixField;
 use crate::vminterface::Instantiator;
 use core::fmt;
@@ -26,7 +26,6 @@ use gc_arena::lock::Lock;
 use gc_arena::{Collect, Gc, Mutation};
 use ruffle_render::filters::Filter;
 use std::cell::{Cell, RefCell};
-use std::sync::Arc;
 
 #[derive(Clone, Collect, Copy)]
 #[collect(no_drop)]
@@ -104,15 +103,16 @@ impl<'gc> Avm2Button<'gc> {
         context: &mut UpdateContext<'gc>,
         construct_blank_states: bool,
     ) -> Self {
+        let mc = context.gc();
+        let movie = source_movie.movie.clone();
+
         Avm2Button(Gc::new(
-            context.gc(),
+            mc,
             Avm2ButtonData {
-                base: Default::default(),
+                base: InteractiveObjectBase::from_shared(mc, movie, button.id),
                 shared: Gc::new(
-                    context.gc(),
+                    mc,
                     ButtonShared {
-                        swf: source_movie.movie.clone(),
-                        id: button.id,
                         cell: RefCell::new(ButtonSharedMut {
                             records: button.records.clone(),
                             up_to_over_sound: None,
@@ -220,7 +220,7 @@ impl<'gc> Avm2Button<'gc> {
                     None => {
                         tracing::error!(
                             "Button ID {}: could not instantiate child ID {}",
-                            shared.id,
+                            self.id(),
                             record.id,
                         );
                     }
@@ -415,14 +415,6 @@ impl<'gc> TDisplayObject<'gc> for Avm2Button<'gc> {
 
     fn instantiate(self, mc: &Mutation<'gc>) -> DisplayObject<'gc> {
         Self(Gc::new(mc, (*self.0).clone())).into()
-    }
-
-    fn id(self) -> CharacterId {
-        self.0.shared.id
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.shared.swf.clone()
     }
 
     fn post_instantiation(
@@ -809,8 +801,6 @@ impl<'gc> TInteractiveObject<'gc> for Avm2Button<'gc> {
 #[derive(Collect, Debug)]
 #[collect(require_static)]
 struct ButtonShared {
-    swf: Arc<SwfMovie>,
-    id: CharacterId,
     cell: RefCell<ButtonSharedMut>,
 }
 

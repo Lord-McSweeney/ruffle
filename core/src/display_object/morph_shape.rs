@@ -44,16 +44,39 @@ impl<'gc> MorphShape<'gc> {
         tag: swf::DefineMorphShape,
         movie: Arc<SwfMovie>,
     ) -> Self {
-        let shared = MorphShapeShared::from_swf_tag(&tag, movie);
+        let shared = MorphShapeShared::from_swf_tag(&tag);
         MorphShape(Gc::new(
             gc_context,
             MorphShapeData {
-                base: Default::default(),
+                base: DisplayObjectBase::from_shared(gc_context, movie, tag.id),
                 shared: Lock::new(Gc::new(gc_context, shared)),
                 ratio: Cell::new(0),
                 object: Lock::new(None),
             },
         ))
+    }
+
+    /// Retrieves the `ShapeHandle` for the given ratio.
+    /// Lazily initializes and tessellates the shape if it does not yet exist.
+    fn get_shape(
+        &self,
+        context: &mut RenderContext<'_, 'gc>,
+        library: &Library<'gc>,
+        ratio: u16,
+    ) -> ShapeHandle {
+        let shared = self.0.shared.get();
+        let mut frame = shared.get_frame(ratio);
+
+        if let Some(handle) = frame.shape_handle.clone() {
+            handle
+        } else {
+            let library = library.library_for_movie(self.movie().clone()).unwrap();
+            let handle = context
+                .renderer
+                .register_shape((&frame.shape).into(), &MovieLibrarySource { library });
+            frame.shape_handle = Some(handle.clone());
+            handle
+        }
     }
 
     pub fn ratio(self) -> u16 {
@@ -75,16 +98,16 @@ impl<'gc> TDisplayObject<'gc> for MorphShape<'gc> {
         Self(Gc::new(gc_context, self.0.as_ref().clone())).into()
     }
 
-    fn id(self) -> CharacterId {
-        self.0.shared.get().id
-    }
-
     fn replace_with(self, context: &mut UpdateContext<'gc>, id: CharacterId) {
         if let Some(new_morph_shape) = context
             .library
             .library_for_movie_mut(self.movie())
             .get_morph_shape(id)
         {
+            // Replace base DisplayObject shared data
+            self.copy_base_shared_from(context.gc(), new_morph_shape.into());
+
+            // Replace MorphShape-specific shared data
             unlock!(Gc::write(context.gc(), self.0), MorphShapeData, shared)
                 .set(new_morph_shape.0.shared.get())
         } else {
@@ -116,10 +139,9 @@ impl<'gc> TDisplayObject<'gc> for MorphShape<'gc> {
         }
     }
 
-    fn render_self(self, context: &mut RenderContext) {
+    fn render_self(self, context: &mut RenderContext<'_, 'gc>) {
         let ratio = self.0.ratio.get();
-        let shared = self.0.shared.get();
-        let shape_handle = shared.get_shape(context, context.library, ratio);
+        let shape_handle = self.get_shape(context, context.library, ratio);
         context
             .commands
             .render_shape(shape_handle, context.transform_stack.transform());
@@ -157,10 +179,6 @@ impl<'gc> TDisplayObject<'gc> for MorphShape<'gc> {
 
         false
     }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.shared.get().movie.clone()
-    }
 }
 
 /// A precalculated intermediate frame for a morph shape.
@@ -174,21 +192,17 @@ struct Frame {
 #[derive(Collect)]
 #[collect(require_static)]
 pub struct MorphShapeShared {
-    id: CharacterId,
     start: swf::MorphShape,
     end: swf::MorphShape,
     frames: RefCell<fnv::FnvHashMap<u16, Frame>>,
-    movie: Arc<SwfMovie>,
 }
 
 impl MorphShapeShared {
-    pub fn from_swf_tag(swf_tag: &swf::DefineMorphShape, movie: Arc<SwfMovie>) -> Self {
+    pub fn from_swf_tag(swf_tag: &swf::DefineMorphShape) -> Self {
         Self {
-            id: swf_tag.id,
             start: swf_tag.start.clone(),
             end: swf_tag.end.clone(),
             frames: RefCell::new(fnv::FnvHashMap::default()),
-            movie,
         }
     }
 
@@ -201,27 +215,6 @@ impl MorphShapeShared {
                 .entry(ratio)
                 .or_insert_with(|| self.build_morph_frame(ratio))
         })
-    }
-
-    /// Retrieves the `ShapeHandle` for the given ratio.
-    /// Lazily initializes and tessellates the shape if it does not yet exist.
-    fn get_shape<'gc>(
-        &self,
-        context: &mut RenderContext<'_, 'gc>,
-        library: &Library<'gc>,
-        ratio: u16,
-    ) -> ShapeHandle {
-        let mut frame = self.get_frame(ratio);
-        if let Some(handle) = frame.shape_handle.clone() {
-            handle
-        } else {
-            let library = library.library_for_movie(self.movie.clone()).unwrap();
-            let handle = context
-                .renderer
-                .register_shape((&frame.shape).into(), &MovieLibrarySource { library });
-            frame.shape_handle = Some(handle.clone());
-            handle
-        }
     }
 
     fn build_morph_frame(&self, ratio: u16) -> Frame {

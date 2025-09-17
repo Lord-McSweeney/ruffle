@@ -218,10 +218,10 @@ struct MovieClipDataMut<'gc> {
 }
 
 impl<'gc> MovieClipData<'gc> {
-    fn new(shared: MovieClipShared<'gc>, mc: &Mutation<'gc>) -> Self {
+    fn new(mc: &Mutation<'gc>, shared: MovieClipShared<'gc>, id: CharacterId) -> Self {
         let movie = shared.movie();
         Self {
-            base: Default::default(),
+            base: InteractiveObjectBase::from_shared(mc, movie.clone(), id),
             cell: RefLock::new(MovieClipDataMut {
                 container: ChildContainer::new(&movie),
                 frame_scripts: Vec::new(),
@@ -266,7 +266,7 @@ impl<'gc> MovieClip<'gc> {
 
     pub fn new(movie: Arc<SwfMovie>, mc: &Mutation<'gc>) -> Self {
         let shared = MovieClipShared::empty(movie);
-        MovieClip(Gc::new(mc, MovieClipData::new(shared, mc)))
+        MovieClip(Gc::new(mc, MovieClipData::new(mc, shared, 0)))
     }
 
     pub fn new_with_avm2(
@@ -277,7 +277,7 @@ impl<'gc> MovieClip<'gc> {
     ) -> Self {
         let mut shared = MovieClipShared::empty(movie);
         *shared.avm2_class.get_mut() = Some(class);
-        let mut data = MovieClipData::new(shared, mc);
+        let mut data = MovieClipData::new(mc, shared, 0);
         data.object2 = Lock::new(Some(this));
         MovieClip(Gc::new(mc, data))
     }
@@ -289,8 +289,8 @@ impl<'gc> MovieClip<'gc> {
         swf: SwfSlice,
         num_frames: u16,
     ) -> Self {
-        let shared = MovieClipShared::with_data(id, swf, num_frames, None);
-        let data = MovieClipData::new(shared, mc);
+        let shared = MovieClipShared::with_data(swf, num_frames, None);
+        let data = MovieClipData::new(mc, shared, id);
         data.flags.set(MovieClipFlags::PLAYING);
         MovieClip(Gc::new(mc, data))
     }
@@ -302,9 +302,9 @@ impl<'gc> MovieClip<'gc> {
     ) -> Self {
         let num_frames = movie.num_frames();
         let loader_info = None;
-        let shared = MovieClipShared::with_data(0, movie.into(), num_frames, loader_info);
+        let shared = MovieClipShared::with_data(movie.into(), num_frames, loader_info);
 
-        let mut data = MovieClipData::new(shared, context.gc());
+        let mut data = MovieClipData::new(context.gc(), shared, 0);
         data.flags.set(MovieClipFlags::PLAYING);
         data.importer_movie = Some(parent);
         MovieClip(Gc::new(context.gc(), data))
@@ -330,8 +330,8 @@ impl<'gc> MovieClip<'gc> {
         };
 
         let shared =
-            MovieClipShared::with_data(0, movie.clone().into(), movie.num_frames(), loader_info);
-        let data = MovieClipData::new(shared, activation.gc());
+            MovieClipShared::with_data(movie.clone().into(), movie.num_frames(), loader_info);
+        let data = MovieClipData::new(activation.gc(), shared, 0);
         data.flags.set(MovieClipFlags::PLAYING);
         data.base.base.set_is_root(true);
 
@@ -358,8 +358,7 @@ impl<'gc> MovieClip<'gc> {
         loader_info: Option<LoaderInfoObject<'gc>>,
     ) {
         let write = Gc::write(context.gc(), self.0);
-        let movie =
-            movie.unwrap_or_else(|| Arc::new(SwfMovie::empty(write.movie().version(), None)));
+        let movie = movie.unwrap_or_else(|| Arc::new(SwfMovie::empty(self.swf_version(), None)));
         let total_frames = movie.num_frames();
         assert!(
             write.shared.get().loader_info.is_none(),
@@ -373,7 +372,7 @@ impl<'gc> MovieClip<'gc> {
 
         unlock!(write, MovieClipData, shared).set(Gc::new(
             context.gc(),
-            MovieClipShared::with_data(0, movie.into(), total_frames, loader_info),
+            MovieClipShared::with_data(movie.into(), total_frames, loader_info),
         ));
         write.tag_stream_pos.set(0);
         write.flags.set(MovieClipFlags::PLAYING);
@@ -1693,6 +1692,20 @@ impl<'gc> MovieClip<'gc> {
         self.assert_expected_tag_end(hit_target_frame);
     }
 
+    /// Fetch the avm1 constructor associated with this MovieClip by `Object.registerClass`.
+    /// Return `None` if this MovieClip isn't exported, or if no constructor is associated
+    /// to its symbol name.
+    fn get_registered_avm1_constructor(
+        self,
+        context: &mut UpdateContext<'gc>,
+    ) -> Option<Avm1Object<'gc>> {
+        let symbol_name = self.0.shared.get().exported_name.get();
+        let symbol_name = symbol_name.as_ref()?;
+        context
+            .avm1
+            .get_registered_constructor(self.swf_version(), *symbol_name)
+    }
+
     fn construct_as_avm1_object(
         self,
         context: &mut UpdateContext<'gc>,
@@ -1701,7 +1714,7 @@ impl<'gc> MovieClip<'gc> {
         run_frame: bool,
     ) {
         if self.0.object1.get().is_none() {
-            let avm1_constructor = self.0.get_registered_avm1_constructor(context);
+            let avm1_constructor = self.get_registered_avm1_constructor(context);
 
             // If we are running within the AVM, this must be an immediate action.
             // If we are not, then this must be queued to be ran first-thing
@@ -2244,14 +2257,6 @@ impl<'gc> TDisplayObject<'gc> for MovieClip<'gc> {
         Self(Gc::new(mc, (*self.0).clone())).into()
     }
 
-    fn id(self) -> CharacterId {
-        self.0.id()
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.movie()
-    }
-
     fn enter_frame(self, context: &mut UpdateContext<'gc>) {
         let skip_frame = self.base().should_skip_next_enter_frame();
         //Child removals from looping gotos appear to resolve in reverse order.
@@ -2637,7 +2642,7 @@ impl<'gc> TInteractiveObject<'gc> for MovieClip<'gc> {
 
         let mut handled = ClipEventResult::NotHandled;
         if let Some(object) = self.0.object1.get() {
-            let swf_version = self.0.movie().version();
+            let swf_version = self.movie().version();
             if swf_version >= 5 {
                 if let Some(flag) = event.flag() {
                     for event_handler in self
@@ -2986,10 +2991,6 @@ impl<'gc> TInteractiveObject<'gc> for MovieClip<'gc> {
 }
 
 impl<'gc> MovieClipData<'gc> {
-    fn id(&self) -> CharacterId {
-        self.shared.get().id
-    }
-
     fn set_flag(&self, flag: MovieClipFlags, value: bool) {
         let mut flags = self.flags.get();
         flags.set(flag, value);
@@ -3116,24 +3117,6 @@ impl<'gc> MovieClipData<'gc> {
         if let Some(audio_stream) = self.audio_stream.take() {
             context.stop_sound(audio_stream);
         }
-    }
-
-    /// Fetch the avm1 constructor associated with this MovieClip by `Object.registerClass`.
-    /// Return `None` if this MovieClip isn't exported, or if no constructor is associated
-    /// to its symbol name.
-    fn get_registered_avm1_constructor(
-        &self,
-        context: &mut UpdateContext<'gc>,
-    ) -> Option<Avm1Object<'gc>> {
-        let symbol_name = self.shared.get().exported_name.get();
-        let symbol_name = symbol_name.as_ref()?;
-        context
-            .avm1
-            .get_registered_constructor(self.movie().version(), *symbol_name)
-    }
-
-    pub fn movie(&self) -> Arc<SwfMovie> {
-        self.shared.get().movie()
     }
 }
 
@@ -3851,7 +3834,7 @@ impl<'gc, 'a> MovieClipShared<'gc> {
         if let std::collections::hash_map::Entry::Vacant(v) = shared.frame_labels_map.entry(label) {
             v.insert(cur_frame);
         } else {
-            tracing::warn!("Movie clip {}: Duplicated frame label", self.id);
+            tracing::warn!("Movie clip has duplicated frame label");
         }
         Ok(())
     }
@@ -3883,7 +3866,7 @@ impl<'gc, 'a> MovieClipShared<'gc> {
             {
                 v.insert(scene);
             } else {
-                tracing::warn!("Movie clip {}: Duplicated scene label", self.id);
+                tracing::warn!("Movie clip has duplicated scene label");
             }
         }
 
@@ -3897,7 +3880,7 @@ impl<'gc, 'a> MovieClipShared<'gc> {
             {
                 v.insert(frame_num as u16 + 1);
             } else {
-                tracing::warn!("Movie clip {}: Duplicated frame label", self.id);
+                tracing::warn!("Movie clip has duplicated frame label");
             }
         }
 
@@ -4388,7 +4371,6 @@ impl Default for PreloadProgress {
 #[collect(no_drop)]
 struct MovieClipShared<'gc> {
     cell: RefCell<MovieClipSharedMut>,
-    id: CharacterId,
     swf: SwfSlice,
     header_frames: FrameNumber,
     /// Preload progress for the given clip's tag stream.
@@ -4434,7 +4416,7 @@ struct EagerTags {
 
 impl<'gc> MovieClipShared<'gc> {
     fn empty(movie: Arc<SwfMovie>) -> Self {
-        let mut s = Self::with_data(0, SwfSlice::empty(movie), 1, None);
+        let mut s = Self::with_data(SwfSlice::empty(movie), 1, None);
 
         *s.preload_progress.cur_preload_frame.get_mut() = s.header_frames + 1;
 
@@ -4442,14 +4424,12 @@ impl<'gc> MovieClipShared<'gc> {
     }
 
     fn with_data(
-        id: CharacterId,
         swf: SwfSlice,
         header_frames: FrameNumber,
         loader_info: Option<LoaderInfoObject<'gc>>,
     ) -> Self {
         Self {
             cell: Default::default(),
-            id,
             swf,
             header_frames,
             preload_progress: Default::default(),

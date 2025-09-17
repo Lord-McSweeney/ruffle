@@ -266,6 +266,9 @@ pub struct DisplayObjectBase<'gc> {
 
     meta_data: Lock<Option<Avm2Object<'gc>>>,
 
+    /// Data shared across all instances of this display object.
+    shared: Lock<Gc<'gc, DisplayObjectShared>>,
+
     /// The blend mode used when rendering this display object.
     /// Values other than the default `BlendMode::Normal` implicitly cause cache-as-bitmap behavior.
     blend_mode: Cell<ExtendedBlendMode>,
@@ -305,8 +308,10 @@ struct DisplayObjectBaseMut {
     cache: Option<BitmapCache>,
 }
 
-impl Default for DisplayObjectBase<'_> {
-    fn default() -> Self {
+impl<'gc> DisplayObjectBase<'gc> {
+    pub fn from_shared(mc: &Mutation<'gc>, movie: Arc<SwfMovie>, id: CharacterId) -> Self {
+        let shared_data = Gc::new(mc, DisplayObjectShared { movie, id });
+
         Self {
             cell: RefCell::new(DisplayObjectBaseMut {
                 filters: Default::default(),
@@ -328,6 +333,7 @@ impl Default for DisplayObjectBase<'_> {
             masker: Lock::new(None),
             maskee: Lock::new(None),
             meta_data: Lock::new(None),
+            shared: Lock::new(shared_data),
             sound_transform: Default::default(),
             blend_mode: Default::default(),
             opaque_background: Default::default(),
@@ -337,9 +343,7 @@ impl Default for DisplayObjectBase<'_> {
             scaling_grid: Default::default(),
         }
     }
-}
 
-impl<'gc> DisplayObjectBase<'gc> {
     fn contains_flag(&self, flag: DisplayObjectFlags) -> bool {
         self.flags.get().contains(flag)
     }
@@ -863,6 +867,10 @@ impl<'gc> DisplayObjectBase<'gc> {
     pub fn set_has_matrix3d_stub(&self, value: bool) {
         self.set_flag(DisplayObjectFlags::HAS_MATRIX3D_STUB, value)
     }
+
+    fn set_shared(this: &Write<Self>, value: Gc<'gc, DisplayObjectShared>) {
+        unlock!(this, Self, shared).set(value);
+    }
 }
 
 struct DrawCacheInfo {
@@ -1250,7 +1258,10 @@ pub trait TDisplayObject<'gc>:
         }
     }
 
-    fn id(self) -> CharacterId;
+    #[no_dynamic]
+    fn id(self) -> CharacterId {
+        self.base().shared.get().id
+    }
 
     #[no_dynamic]
     fn depth(self) -> Depth {
@@ -2466,7 +2477,8 @@ pub trait TDisplayObject<'gc>:
 
     /// Called when this object should be replaced by a PlaceObject tag.
     fn replace_with(self, _context: &mut UpdateContext<'gc>, _id: CharacterId) {
-        // Noop for most symbols; only shapes can replace their innards with another Graphic.
+        // Noop for most symbols; only Graphic, MorphShape, and Text can replace
+        // their innards with those of another DisplayObject.
     }
 
     fn object(self) -> Avm1Value<'gc> {
@@ -2518,12 +2530,16 @@ pub trait TDisplayObject<'gc>:
     }
 
     /// Return the version of the SWF that created this movie clip.
+    #[no_dynamic]
     fn swf_version(self) -> u8 {
         self.movie().version()
     }
 
     /// Return the SWF that defines this display object.
-    fn movie(self) -> Arc<SwfMovie>;
+    #[no_dynamic]
+    fn movie(self) -> Arc<SwfMovie> {
+        self.base().shared.get().movie.clone()
+    }
 
     fn loader_info(self) -> Option<LoaderInfoObject<'gc>> {
         None
@@ -2740,6 +2756,17 @@ pub trait TDisplayObject<'gc>:
         }
     }
 
+    /// Set the shared data of this `DisplayObject` to the shared data of
+    /// another `DisplayObject`. This is intended to be used in implementations
+    /// of `TDisplayObject::replace_with`.
+    #[no_dynamic]
+    fn copy_base_shared_from(self, mc: &Mutation<'gc>, other: DisplayObject<'gc>) {
+        let write = Gc::write(mc, self.base());
+        let other_shared = other.base().shared.get();
+
+        DisplayObjectBase::set_shared(write, other_shared);
+    }
+
     fn as_drawing(&self) -> Option<RefMut<'_, Drawing>> {
         None
     }
@@ -2898,6 +2925,14 @@ bitflags! {
         /// The options used for mouse picking, such as clicking on buttons.
         const MOUSE_PICK = Self::SKIP_MASK.bits() | Self::SKIP_INVISIBLE.bits();
     }
+}
+
+/// Data shared across all instances of a display object.
+#[derive(Clone, Collect)]
+#[collect(no_drop)]
+struct DisplayObjectShared {
+    movie: Arc<SwfMovie>,
+    id: CharacterId,
 }
 
 /// A binding from a property of an AVM1 StageObject to an EditText text field.

@@ -101,7 +101,6 @@ impl fmt::Debug for Bitmap<'_> {
 #[repr(C, align(8))]
 pub struct BitmapGraphicData<'gc> {
     base: DisplayObjectBase<'gc>,
-    movie: Arc<SwfMovie>,
 
     /// The AVM2 side of this object.
     ///
@@ -120,8 +119,6 @@ pub struct BitmapGraphicData<'gc> {
     /// and continue to be reported even if the BitmapData is disposed.
     width: Cell<u32>,
     height: Cell<u32>,
-
-    id: CharacterId,
 
     /// Whether or not bitmap smoothing is enabled.
     smoothing: Cell<bool>,
@@ -154,8 +151,7 @@ impl<'gc> Bitmap<'gc> {
         let bitmap = Bitmap(Gc::new(
             mc,
             BitmapGraphicData {
-                base: Default::default(),
-                id,
+                base: DisplayObjectBase::from_shared(mc, movie.clone(), id),
                 bitmap_data: Lock::new(bitmap_data),
                 width: Cell::new(width),
                 height: Cell::new(height),
@@ -163,7 +159,6 @@ impl<'gc> Bitmap<'gc> {
                 pixel_snapping: Cell::new(PixelSnapping::Auto),
                 avm2_object: Lock::new(None),
                 avm2_bitmap_class: Lock::new(BitmapClass::NoSubclass),
-                movie: movie.clone(),
             },
         ));
 
@@ -296,10 +291,6 @@ impl<'gc> TDisplayObject<'gc> for Bitmap<'gc> {
         Self(Gc::new(gc_context, self.0.as_ref().clone())).into()
     }
 
-    fn id(self) -> CharacterId {
-        self.0.id
-    }
-
     fn self_bounds(self) -> Rectangle<Twips> {
         Rectangle {
             x_min: Twips::ZERO,
@@ -389,9 +380,5 @@ impl<'gc> TDisplayObject<'gc> for Bitmap<'gc> {
 
     fn set_object2(self, context: &mut UpdateContext<'gc>, to: Avm2StageObject<'gc>) {
         self.set_avm2_object(context.gc(), Some(to));
-    }
-
-    fn movie(self) -> Arc<SwfMovie> {
-        self.0.movie.clone()
     }
 }

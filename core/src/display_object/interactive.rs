@@ -17,7 +17,9 @@ use crate::display_object::{
     DisplayObject, DisplayObjectBase, TDisplayObject, TDisplayObjectContainer,
 };
 use crate::events::{ClipEvent, ClipEventResult, MouseButton};
+use crate::prelude::*;
 use crate::string::AvmString;
+use crate::tag_utils::SwfMovie;
 use crate::utils::HasPrefixField;
 use bitflags::bitflags;
 use gc_arena::barrier::unlock;
@@ -26,6 +28,7 @@ use gc_arena::{Collect, Gc, Mutation};
 use ruffle_macros::{enum_trait_object, istr};
 use std::cell::Cell;
 use std::fmt::Debug;
+use std::sync::Arc;
 use swf::{Point, Rectangle, Twips};
 
 /// Find the lowest common ancestor between the display objects in `from` and
@@ -103,10 +106,10 @@ pub struct InteractiveObjectBase<'gc> {
     focus_rect: Cell<Option<bool>>,
 }
 
-impl Default for InteractiveObjectBase<'_> {
-    fn default() -> Self {
+impl<'gc> InteractiveObjectBase<'gc> {
+    pub fn from_shared(mc: &Mutation<'gc>, movie: Arc<SwfMovie>, id: CharacterId) -> Self {
         Self {
-            base: Default::default(),
+            base: DisplayObjectBase::from_shared(mc, movie, id),
             flags: Cell::new(InteractiveObjectFlags::MOUSE_ENABLED),
             context_menu: Lock::new(Avm2Value::Null),
             tab_enabled: Cell::new(None),
@@ -114,9 +117,7 @@ impl Default for InteractiveObjectBase<'_> {
             focus_rect: Cell::new(None),
         }
     }
-}
 
-impl<'gc> InteractiveObjectBase<'gc> {
     fn contains_flag(&self, flag: InteractiveObjectFlags) -> bool {
         self.flags.get().contains(flag)
     }
